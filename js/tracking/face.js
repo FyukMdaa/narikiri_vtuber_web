@@ -9,6 +9,7 @@ import * as THREE from 'three';
 import { sceneState } from 'app/state.js';
 import {
   BLINK_TUNING,
+  HAPPY_TUNING,
   IRIS,
   IRIS_MAX_ANGLE,
   IRIS_SMOOTHING,
@@ -42,11 +43,23 @@ export function applyExpressions(vrm, blendshapes) {
   if (!blendshapes || !vrm.expressionManager) return;
   const score = (name) => blendshapes.find(c => c.categoryName === name)?.score ?? 0;
   const em = vrm.expressionManager;
+
+  // 笑顔（happy）。多くのモデルの joy モーフは目閉じを含むため、happy だけでも目が閉じる。
+  // さらに笑顔では瞬目スコアも上がり、three-vrm は同一モーフへの影響値を clamp せず合算
+  // する（VRM0 は overrideBlink も効かない）ため、blink + happy で目閉じが 1.0 を超え、
+  // まつ毛が顔に埋まる。→ happy を maxHappy で丸め、残りの目閉じ予算を blink 側に配分
+  // して、合計の目閉じ度が常に maxBlink 以下になるようにする。
+  const happy = Math.min(
+    Math.max(score('mouthSmileLeft'), score('mouthSmileRight')),
+    HAPPY_TUNING.maxHappy,
+  );
+  const blinkBudget = Math.max(0, BLINK_TUNING.maxBlink - happy);
+
   // カメラはミラー表示。VRM 側の目はユーザと同じ側（左目=カメラ映像の右目）
-  em.setValue('blinkLeft', processBlink(score('eyeBlinkRight')));
-  em.setValue('blinkRight', processBlink(score('eyeBlinkLeft')));
+  em.setValue('blinkLeft',  Math.min(processBlink(score('eyeBlinkRight')), blinkBudget));
+  em.setValue('blinkRight', Math.min(processBlink(score('eyeBlinkLeft')),  blinkBudget));
   em.setValue('aa', score('jawOpen'));
-  em.setValue('happy', Math.max(score('mouthSmileLeft'), score('mouthSmileRight')));
+  em.setValue('happy', happy);
 }
 
 // 視線方向を iris 位置から計算（左右個別）

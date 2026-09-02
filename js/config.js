@@ -70,6 +70,15 @@ export const BLINK_TUNING = {
   maxBlink: 0.88,  // まぶたの最大閉じ度。1.0=全閉。まつ毛が顔に埋まるのを防ぐ
 };
 
+// 笑顔（happy）のチューニング（まつ毛対策）
+export const HAPPY_TUNING = {
+  // happy の上限値。多くのモデルの joy モーフは目閉じを含み、かつ笑うと瞬目スコアも
+  // 上がるため、blink + happy の目閉じモーフ影響値が合算（three-vrm は clamp しない）
+  // して 1.0 を超え、まつ毛が顔に埋まる。happy 側を上限で丸め、目閉じ分は blink 側の
+  // 予算から差し引くことで合計が maxBlink 以下に収まる（face.js の applyExpressions 参照）
+  maxHappy: 0.85,
+};
+
 // 頭部回転の最大角度（rad）
 export const HEAD_LIMIT = {
   pitch: 0.45,
