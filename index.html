@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Vtuberなりきりソフト</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Zen+Kaku+Gothic+New:wght@400;500;700&family=Noto+Sans+JP:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="./css/style.css">
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://esm.sh/three@0.166.1",
+    "three/addons/": "https://esm.sh/three@0.166.1/examples/jsm/",
+    "@pixiv/three-vrm": "https://esm.sh/@pixiv/three-vrm@3.1.5?deps=three@0.166.1",
+    "@mediapipe/tasks-vision": "https://esm.sh/@mediapipe/tasks-vision@0.10.14",
+    "app/": "./js/"
+  }
+}
+</script>
+</head>
+<body>
+
+<div id="app">
+  <div id="toolbar">
+    <div class="brand"><span class="dot"></span>なりきりVtuber</div>
+
+    <button class="tool-btn" id="btn-camera">
+      <span id="btn-camera-label">カメラ開始</span>
+    </button>
+
+    <button class="tool-btn" id="btn-overlay" disabled>骨組み表示</button>
+
+    <div class="divider-v"></div>
+
+    <label class="tool-btn brightness-label" title="3Dモデルの明るさを調整">
+      <span>明るさ</span>
+      <input type="range" id="brightness-slider" min="0.2" max="3.0" step="0.1" value="1.0"
+        style="width: 80px; accent-color: var(--accent); cursor: pointer;">
+      <span id="brightness-val" style="font-size: 12px;">1.0</span>
+    </label>
+
+    <div class="divider-v"></div>
+
+    <label class="tool-btn" id="zoom-label" title="顔の大きさに合わせてカメラズームを自動調整">
+      <input type="checkbox" id="opt-zoom" checked>
+      <span>顔追従ズーム</span>
+    </label>
+
+    <label class="tool-btn" id="twist-label" title="肩・手首のひねり（捻り）をアバターに反映します">
+      <input type="checkbox" id="opt-twist" checked>
+      <span>ひねり反映</span>
+    </label>
+
+    <div class="divider-v"></div>
+
+    <button class="tool-btn" id="btn-load-vrm">
+      VRM読み込み
+    </button>
+    <input type="file" id="vrm-input" accept=".vrm">
+
+    <div id="status-tag">READY</div>
+  </div>
+
+  <div id="stage">
+    <div class="pane" id="pane-model">
+      <div class="pane-label"><span class="idx">01</span> MODEL</div>
+      <div id="model-canvas-wrap">
+        <canvas id="three-canvas"></canvas>
+      </div>
+      <div id="fps-readout">-- fps</div>
+      <div class="scanline"></div>
+    </div>
+
+    <div class="pane" id="pane-camera">
+      <div class="pane-label"><span class="idx">02</span> CAMERA / TRACKING</div>
+      <div id="camera-wrap">
+        <video id="camera-video" autoplay playsinline muted></video>
+        <canvas id="overlay-canvas"></canvas>
+        <div class="pane-empty-hint" id="camera-empty-hint">
+          <div class="glyph">◎</div>
+          <div>「カメラ開始」を押してWebカメラへのアクセスを許可してください</div>
+        </div>
+      </div>
+      <div class="scanline"></div>
+    </div>
+  </div>
+</div>
+
+<script type="module" src="./js/main.js"></script>
+
+</body>
+</html>
