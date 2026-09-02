@@ -66,6 +66,14 @@ export const _qTwistInv = new THREE.Quaternion();
 export const _qWristScaled = new THREE.Quaternion();
 export const _qWristTarget = new THREE.Quaternion();
 
+// VRM0.x の vrm.scene 回転（Y軸π: vrm-loader.js の座標合わせ）を打ち消す
+// クォータニオン。getWorldQuaternion() はシーン回転込みの値を返すため、
+// トラッキング基準（正規化ボーンのローカルフレーム）に揃えるのに使う
+export const _qSceneRotYInv = new THREE.Quaternion().setFromAxisAngle(
+  new THREE.Vector3(0, 1, 0),
+  -Math.PI
+);
+
 // 体の向き（spine yaw/pitch）用
 export const _eulerHips = new THREE.Euler();
 export const _qHipsTarget = new THREE.Quaternion();

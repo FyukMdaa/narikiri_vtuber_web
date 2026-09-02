@@ -27,6 +27,7 @@ import {
   _qWristScaled,
   _qWristTarget,
   _qTwistInv,
+  _qSceneRotYInv,
   _restUpperQuat,
   _restUpperQuatVrm0,
   _smoothedUpperTwist,
@@ -59,6 +60,13 @@ export function applyWristAngle(vrm, elbow, wristPose, handLm, side, handBone) {
   const lowerArmBone = getBone(vrm, side === 'left' ? 'leftLowerArm' : 'rightLowerArm');
   if (!lowerArmBone) return;
   lowerArmBone.getWorldQuaternion(_qLowerArmWorld);
+  // VRM0.x では vrm.scene 自体に π のY回転が掛かっている（vrm-loader.js の座標合わせ）。
+  // getWorldQuaternion にはこのシーン回転が含まれるが、手の方向変換（mpToVrmDir ＋
+  // VRM0のy反転）は正規化ボーンのローカル基準フレームで行っているため、シーン回転が
+  // 混入すると手方向のX成分（左右）とZ成分（前後）が反転し、手首の左右角が逆になる。
+  // そこで VRM0 のときだけシーン回転を打ち消してから逆クォータニオンを作る。
+  // （VRM1 はシーン回転ゼロなので影響なし）
+  if (!sceneState.isVrm1) _qLowerArmWorld.premultiply(_qSceneRotYInv);
   _qTwistInv.copy(_qLowerArmWorld).invert();
 
   // 手の方向（VRM世界座標系）: 手首 → 中指MCP
