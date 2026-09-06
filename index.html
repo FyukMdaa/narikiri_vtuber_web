@@ -61,6 +61,11 @@
     </button>
     <input type="file" id="vrm-input" accept=".vrm">
 
+    <button class="tool-btn" id="btn-load-inp">
+      Inp読込
+    </button>
+    <input type="file" id="inp-input" accept=".inp">
+
     <div id="status-tag">READY</div>
   </div>
 
@@ -69,6 +74,7 @@
       <div class="pane-label"><span class="idx">01</span> MODEL</div>
       <div id="model-canvas-wrap">
         <canvas id="three-canvas"></canvas>
+        <canvas id="inochi-canvas" style="display:none;"></canvas>
       </div>
       <div id="fps-readout">-- fps</div>
       <div class="scanline"></div>

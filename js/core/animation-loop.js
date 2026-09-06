@@ -1,8 +1,10 @@
 // ──────────────────────────────────────────────────────────────
 // animation-loop.js - Three.js のアニメーションループ
 //   FPS 計測・カメラ追従・ズームスムージング・VRM更新
+//   ※Inochi2D モードのときは Three.js の render をスキップし、
+//    代わりに inochi-canvas 側の drawInochi() を呼ぶ
 // ──────────────────────────────────────────────────────────────
-import { sceneState, zoomState, fpsState, fullBodyState } from 'app/state.js';
+import { sceneState, zoomState, fpsState, fullBodyState, modeState, inochiState } from 'app/state.js';
 import {
   ZOOM_SMOOTHING,
   CAMERA_LERP,
@@ -15,6 +17,7 @@ import {
 } from 'app/utils/temp-objects.js';
 import { getBone } from 'app/core/vrm-loader.js';
 import { shoulderWidthToZoom, getShoulderWidth } from 'app/utils/math.js';
+import { drawInochi } from 'app/core/inochi-canvas.js';
 
 // re-export: 旧 API を維持（他モジュールからの参照を透過にする）
 export { shoulderWidthToZoom, getShoulderWidth };
@@ -24,6 +27,15 @@ export function animate() {
   requestAnimationFrame(animate);
   const delta = sceneState.clock.getDelta();
   const { currentVrm, placeholder, camera3d, renderer, scene } = sceneState;
+
+  // ── Inochi2D モードのときは Three.js 側の重い更新をスキップ ──
+  if (modeState.current === 'inochi') {
+    // Inochi2D 側の描画だけ行い、本ループの残り（VRM 更新・カメラ追従）は
+    // Three.js のリソースを消費しないようにスキップする
+    drawInochi();
+    updateFps();
+    return;
+  }
 
   if (!currentVrm) {
     placeholder.rotation.y += 0.006;
@@ -56,7 +68,12 @@ export function animate() {
     camera3d.lookAt(_camLookAtSmooth);
   }
 
-  // FPS 計測
+  updateFps();
+  renderer.render(scene, camera3d);
+}
+
+// FPS 計測（VRM/Inochi2D 共通）
+function updateFps() {
   const now = performance.now();
   const dt = now - fpsState.lastFrameTime;
   fpsState.lastFrameTime = now;
@@ -67,8 +84,6 @@ export function animate() {
       fpsState.readoutEl.textContent = `${fpsState.smoothed.toFixed(0)} fps`;
     }
   }
-
-  renderer.render(scene, camera3d);
 }
 
 // 明るさスライダ適用
@@ -76,4 +91,6 @@ export function applyBrightness(factor) {
   sceneState.keyLight.intensity = 1.1 * factor;
   // AmbientLight は直接参照（scene 全体走査の最適化）
   sceneState.ambientLight.intensity = 1.2 * factor;
+  // Inochi2D 側の明るさも連動
+  inochiState.brightness = factor;
 }

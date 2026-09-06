@@ -63,6 +63,8 @@ export const ui = {
   btnOverlay: null,
   btnLoadVrm: null,
   vrmInput: null,
+  btnLoadInp: null,
+  inpInput: null,
   statusTag: null,
   emptyHint: null,
   paneModel: null,
@@ -76,10 +78,40 @@ export const ui = {
   video: null,
   overlay: null,
   overlayCtx: null,
+  inochiCanvas: null,
 };
 
 // カメラ枠のフルボディキャッシュ（VRM ロード時に計算）
 export const fullBodyState = {
   dist: 3.5,        // 全身が映るカメラ距離
   centerY: 0.9,    // 全身の中心高さ
+};
+
+// ── 表示モード（VRM と Inochi2D の排他切替）──
+//   'vrm'    : Three.js + @pixiv/three-vrm パイプライン
+//   'inochi' : Inochi2D (別 WebGL2 キャンバス) パイプライン
+export const modeState = {
+  current: 'vrm',
+};
+
+// ── Inochi2D 関連状態 ──
+//   phase 概念は開発マイルストーンなので実行時には持たない。
+//   常に bindings 評価 + トラッキング連動を動かす。
+export const inochiState = {
+  renderer: null,          // InochiRenderer インスタンス
+  canvas: null,            // <canvas id="inochi-canvas">
+  puppetHandle: null,     // 現在読込済みの PuppetHandle
+  runtime: null,          // InochiRuntime（getRuntime() で取得）
+  runtimeAvailable: false, // WASM バックエンドが利用可能か
+  paramMap: null,         // buildParamMap() の結果
+  paramSpec: null,        // { paramName: { min, max, ... } } のキャッシュ
+  brightness: 1.0,
+  _detectionActive: false, // detection-loop が動作中か（二重 update を避けるためのフラグ）
+  // 平滑化用一時ステート（毎フレーム更新）
+  _sm: {
+    headPitch: 0, headYaw: 0, headRoll: 0,
+    blinkL: 0, blinkR: 0,
+    mouthOpen: 0, mouthSmile: 0,
+    gazeX: 0, gazeY: 0,
+  },
 };

@@ -4,6 +4,7 @@
 import { cameraState, ui } from 'app/state.js';
 import { initTrackers } from 'app/camera/trackers.js';
 import { runDetectionLoop } from 'app/tracking/detection-loop.js';
+import { setDetectionActive } from 'app/core/inochi-canvas.js';
 
 // カメラ起動 → トラッカー初期化 → 検出ループ開始
 export async function startCamera() {
@@ -43,6 +44,8 @@ export function stopCamera() {
     cancelAnimationFrame(cameraState.detectionLoopId);
     cameraState.detectionLoopId = null;
   }
+  // detection-loop が止まったので、Inochi2D 側は自前で呼吸/アイドルを動かすよう通知
+  setDetectionActive(false);
   if (cameraState.mediaStream) {
     cameraState.mediaStream.getTracks().forEach(t => t.stop());
     cameraState.mediaStream = null;
