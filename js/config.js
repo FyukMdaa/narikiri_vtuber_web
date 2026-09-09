@@ -133,6 +133,25 @@ export const FINGER_AXIS = {
   thumb: null, // 初期化時に THREE.Vector3 を作成（utils/temp-objects で設定）
 };
 
+// ──────────────────────────────────────────────────────────────
+// MediaPipe 自己ホスト設定
+//   CDN (jsdelivr / storage.googleapis.com) を一切参照せず、
+//   同一オリジンから配信されるファイルのみを使用する。
+//   モデル本体は容量が大きいため git 管理せず、
+//   `npm run fetch:mediapipe` で assets/mediapipe/models/ に取得する。
+// ──────────────────────────────────────────────────────────────
+export const MEDIAPIPE_ASSETS = {
+  // FilesetResolver.forVisionTasks() に渡す WASM 配信ベースパス
+  wasmBase: './js/vendor/mediapipe/wasm',
+  models: {
+    face: './assets/mediapipe/models/face_landmarker.task',
+    pose: './assets/mediapipe/models/pose_landmarker_full.task',
+    hand: './assets/mediapipe/models/hand_landmarker.task',
+  },
+  // 'GPU' が使えない環境では Worker 側で自動的に 'CPU' へフォールバックする
+  delegate: 'GPU',
+};
+
 // localStorage に保存する設定のキー名
 export const STORAGE_KEYS = {
   zoomEnabled: 'vtuber_zoom_enabled',

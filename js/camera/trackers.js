@@ -1,64 +1,102 @@
 // ──────────────────────────────────────────────────────────────
 // trackers.js - MediaPipe (Face / Pose / Hand) の初期化
+//   実体は js/tracking/mediapipe-worker.js の Web Worker 内で動作する。
+//   本ファイルはメインスレッド側の Worker 管理 + Promise ベース RPC。
 // ──────────────────────────────────────────────────────────────
-import {
-  FilesetResolver,
-  FaceLandmarker,
-  PoseLandmarker,
-  HandLandmarker,
-} from '@mediapipe/tasks-vision';
-
 import { cameraState, ui } from 'app/state.js';
+import { MEDIAPIPE_ASSETS } from 'app/config.js';
 
-const WASM_CDN = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm';
-const MODELS = {
-  face: 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
-  pose: 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task',
-  hand: 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task',
-};
+let worker = null;
+let nextRequestId = 1;
+const pending = new Map(); // id -> { resolve, reject }
 
-// 3つのトラッカーを順に初期化。失敗時は例外を上層へ伝播。
+function handleWorkerMessage(event) {
+  const { type, id } = event.data ?? {};
+  const entry = id != null ? pending.get(id) : null;
+  if (!entry) return;
+  pending.delete(id);
+  if (type === 'error') {
+    entry.reject(new Error(event.data.error ?? 'mediapipe worker error'));
+  } else {
+    entry.resolve(event.data);
+  }
+}
+
+function handleWorkerError(err) {
+  console.error('[Tracking] worker error:', err);
+  // 保留中のリクエストは全て失敗させ、ループ側に検出失敗として伝播させる
+  for (const [id, entry] of pending) {
+    entry.reject(err instanceof Error ? err : new Error(String(err?.message ?? err)));
+    pending.delete(id);
+  }
+}
+
+function postToWorker(message, transfer) {
+  return new Promise((resolve, reject) => {
+    const id = nextRequestId++;
+    pending.set(id, { resolve, reject });
+    try {
+      worker.postMessage({ ...message, id }, transfer ?? []);
+    } catch (err) {
+      pending.delete(id);
+      reject(err);
+    }
+  });
+}
+
+// 3つのトラッカーを Worker 内で初期化。失敗時は例外を上層へ伝播。
 export async function initTrackers() {
   if (cameraState.trackersReady) return;
-  for (const key of ['faceLandmarker', 'poseLandmarker', 'handLandmarker']) {
-    if (cameraState[key]) {
-      try { cameraState[key].close?.(); } catch {}
-      cameraState[key] = null;
-    }
-  }
   ui.statusTag.textContent = 'トラッキングモデルを読み込み中…';
 
   try {
-    const vision = await FilesetResolver.forVisionTasks(WASM_CDN);
+    if (!worker) {
+      worker = new Worker(new URL('../tracking/mediapipe-worker.js', import.meta.url), { type: 'module' });
+      worker.addEventListener('message', handleWorkerMessage);
+      worker.addEventListener('error', handleWorkerError);
+    }
 
-  cameraState.faceLandmarker = await FaceLandmarker.createFromOptions(vision, {
-    baseOptions: { modelAssetPath: MODELS.face, delegate: 'GPU' },
-    runningMode: 'VIDEO',
-    numFaces: 1,
-    outputFaceBlendshapes: true,
-    outputFacialTransformationMatrixes: true,
-  });
-
-  cameraState.poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
-    baseOptions: { modelAssetPath: MODELS.pose, delegate: 'GPU' },
-    runningMode: 'VIDEO',
-    numPoses: 1,
-  });
-
-  cameraState.handLandmarker = await HandLandmarker.createFromOptions(vision, {
-    baseOptions: { modelAssetPath: MODELS.hand, delegate: 'GPU' },
-    runningMode: 'VIDEO',
-    numHands: 2,
-    outputHandedness: true,
-  });
+    await postToWorker({
+      type: 'init',
+      wasmBase: new URL(MEDIAPIPE_ASSETS.wasmBase, document.baseURI).href,
+      models: {
+        face: new URL(MEDIAPIPE_ASSETS.models.face, document.baseURI).href,
+        pose: new URL(MEDIAPIPE_ASSETS.models.pose, document.baseURI).href,
+        hand: new URL(MEDIAPIPE_ASSETS.models.hand, document.baseURI).href,
+      },
+      delegate: MEDIAPIPE_ASSETS.delegate,
+    });
 
     cameraState.trackersReady = true;
   } catch (err) {
-    for (const key of ['faceLandmarker', 'poseLandmarker', 'handLandmarker']) {
-      try { cameraState[key]?.close?.(); } catch {}
-      cameraState[key] = null;
-    }
     cameraState.trackersReady = false;
     throw err;
+  }
+}
+
+// 1フレーム分の検出を Worker に依頼する。
+// bitmap の所有権は Worker に転送される（呼び出し側で再利用しないこと）。
+export function detectFrame(bitmap, timestamp) {
+  if (!worker || !cameraState.trackersReady) {
+    bitmap.close?.();
+    return Promise.reject(new Error('trackers not ready'));
+  }
+  return postToWorker({ type: 'detect', bitmap, timestamp }, [bitmap]);
+}
+
+// Worker を終了し、全トラッカーを破棄する。
+export async function closeTrackers() {
+  cameraState.trackersReady = false;
+  if (!worker) return;
+  try {
+    await postToWorker({ type: 'close' });
+  } catch {
+    // Worker が既に死んでいる等は無視
+  } finally {
+    worker.removeEventListener('message', handleWorkerMessage);
+    worker.removeEventListener('error', handleWorkerError);
+    worker.terminate();
+    worker = null;
+    pending.clear();
   }
 }

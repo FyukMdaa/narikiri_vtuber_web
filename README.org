@@ -11,3 +11,82 @@
 - [X] Inoch2Dに対応
 - [ ] Live2Dに対応
 - [ ] フォト機能の実装
+- [X] デスクトップアプリ化 (Tauri: Windows / Linux / macOS)
+- [X] MediaPipe の自己ホスト化（CDN非依存）
+- [X] MediaPipe を Web Worker + OffscreenCanvas で実行
+
+* セットアップ
+
+** 依存関係のインストール
+#+begin_src sh
+npm install
+#+end_src
+~postinstall~ で自動的に MediaPipe のモデルファイル取得を試みますが、
+失敗する場合は個別に実行してください:
+#+begin_src sh
+npm run fetch:mediapipe
+#+end_src
+これにより以下が用意されます（すべて外部CDNへ依存せず同一オリジンから配信）:
+- ~js/vendor/mediapipe/~ … ~@mediapipe/tasks-vision~ のESMバンドル + WASM
+- ~assets/mediapipe/models/~ … face / pose / hand の各 ~.task~ モデルファイル
+  （容量が大きいため git 管理外。初回セットアップ時に必ず取得してください）
+
+** ブラウザで開発 (これまで通り)
+#+begin_src sh
+npm run dev
+#+end_src
+[[http://127.0.0.1:1420]] を開いてください。ビルドツール無しの素の ES Modules
+構成なので、ブラウザから直接 index.html を読み込む用途でも動作します
+（ただし ~file://~ 直接オープンは Worker のモジュール解決の都合上非推奨。
+必ず何らかの静的HTTPサーバ経由でアクセスしてください）。
+
+** デスクトップアプリ (Tauri) で開発
+前提: [[https://www.rust-lang.org/tools/install][Rust]] と、OSごとのTauri必須パッケージ
+（Linux: ~webkit2gtk-4.1~ 等。詳細は [[https://v2.tauri.app/start/prerequisites/][公式Prerequisites]]）。
+#+begin_src sh
+npm run tauri:dev
+#+end_src
+
+** デスクトップアプリのビルド
+#+begin_src sh
+npm run tauri:build
+#+end_src
+成果物は ~src-tauri/target/release/bundle/~ 以下に生成されます
+(Windows: ~.msi~/~.exe~、macOS: ~.app~/~.dmg~、Linux: ~.deb~/~.rpm~/~.AppImage~)。
+
+*** OS別の注意点
+- *macOS*: カメラ利用の許可ダイアログを正しく出すため、
+  ~src-tauri/Info.plist~ に ~NSCameraUsageDescription~ を定義済みです
+  （tauri-build が自動でマージします）。配布用に正式署名・notarize
+  する場合は別途 Apple Developer 証明書が必要です。
+- *Linux*: ~getUserMedia~ の対応状況は distro の webkit2gtk バージョンに
+  依存します。動作しない場合は ~webkit2gtk~ を最新化してください。
+- *Windows*: 初回起動時に WebView2 ランタイムが無い場合、
+  ~webviewInstallMode: downloadBootstrapper~ の設定によりインストーラが
+  自動でランタイムを取得します。
+
+** CI / GitHub Actions
+~.github/workflows/tauri-build.yml~ が push / PR / ~v*~ タグ push で
+Windows・Linux(ubuntu-22.04)・macOS(universal) 向けに自動ビルドします。
+~v*~ タグを push すると、ビルド成果物付きの Draft Release が自動作成
+されます（そのまま公開するかは手動で確認してください）。
+
+* アーキテクチャ変更点 (MediaPipe)
+
+- ~js/vendor/mediapipe/~ にESM/WASMバンドルを自己ホスト
+  （~jsdelivr~・~storage.googleapis.com~ へは実行時アクセスしません）。
+- 実際の検出処理 (FaceLandmarker / PoseLandmarker / HandLandmarker) は
+  ~js/tracking/mediapipe-worker.js~ という専用 Web Worker 内で実行され、
+  メインスレッド (UI/描画) をブロックしません。
+  - Worker には ~document~ が存在しないため、GPUデリゲート使用時は
+    tasks-vision が内部で ~OffscreenCanvas~ を用いて描画コンテキストを
+    確保します（ブラウザネイティブ機能）。GPU非対応環境では自動的に
+    CPUデリゲートへフォールバックします。
+  - メインスレッドは ~<video>~ から ~createImageBitmap()~ でフレームを
+    切り出し、所有権ごと ~postMessage~ で Worker へ転送（ゼロコピー）
+    します。検出結果（ランドマーク等）はJSONシリアライズ可能な
+    プレーンオブジェクトとして送り返されます。
+  - ~js/camera/trackers.js~ がPromiseベースのRPCレイヤーとして
+    Workerとの通信を仲介し、~js/tracking/detection-loop.js~ は
+    1フレーム分の検出が完了するまで次のフレームを投げない
+    バックプレッシャー制御を行うことでキュー溜まりを防いでいます。

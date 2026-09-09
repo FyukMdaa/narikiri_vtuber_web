@@ -2,8 +2,8 @@
 // media-camera.js - Webカメラの取得・停止
 // ──────────────────────────────────────────────────────────────
 import { cameraState, ui } from 'app/state.js';
-import { initTrackers } from 'app/camera/trackers.js';
-import { runDetectionLoop } from 'app/tracking/detection-loop.js';
+import { initTrackers, closeTrackers } from 'app/camera/trackers.js';
+import { runDetectionLoop, stopDetectionLoop } from 'app/tracking/detection-loop.js';
 import { setDetectionActive } from 'app/core/inochi-canvas.js';
 
 // カメラ起動 → トラッカー初期化 → 検出ループ開始
@@ -30,24 +30,14 @@ export async function startCamera() {
   } catch (err) {
     console.error(err);
     // カメラ取得後にトラッカー初期化が失敗しても、ストリームと
-    // 部分初期化されたトラッカーを確実に破棄して状態を巻き戻す。
-    if (cameraState.detectionLoopId) {
-      cancelAnimationFrame(cameraState.detectionLoopId);
-      cameraState.detectionLoopId = null;
-    }
+    // 部分初期化されたトラッカー(Worker)を確実に破棄して状態を巻き戻す。
+    stopDetectionLoop();
     setDetectionActive(false);
     if (cameraState.mediaStream) {
       cameraState.mediaStream.getTracks().forEach(t => t.stop());
       cameraState.mediaStream = null;
     }
-    for (const key of ['faceLandmarker', 'poseLandmarker', 'handLandmarker']) {
-      const tracker = cameraState[key];
-      if (tracker && typeof tracker.close === 'function') {
-        try { tracker.close(); } catch {}
-      }
-      cameraState[key] = null;
-    }
-    cameraState.trackersReady = false;
+    await closeTrackers();
     ui.video.srcObject = null;
     ui.emptyHint.style.display = 'flex';
     ui.btnCameraLabel.textContent = 'カメラ開始';
@@ -66,10 +56,7 @@ export async function startCamera() {
 
 // カメラ停止 → 検出ループ中断
 export function stopCamera() {
-  if (cameraState.detectionLoopId) {
-    cancelAnimationFrame(cameraState.detectionLoopId);
-    cameraState.detectionLoopId = null;
-  }
+  stopDetectionLoop();
   // detection-loop が止まったので、Inochi2D 側は自前で呼吸/アイドルを動かすよう通知
   setDetectionActive(false);
   if (cameraState.mediaStream) {

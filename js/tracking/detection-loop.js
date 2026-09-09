@@ -1,7 +1,8 @@
 // ──────────────────────────────────────────────────────────────
 // detection-loop.js - MediaPipe 検出ループ
 //   毎フレーム face / pose / hand を検出し、オーバーレイ描画と
-//   VRM 適用を行う。runDetectionLoop は再帰的に rAF を呼ぶ。
+//   VRM 適用を行う。実際の検出は Web Worker (mediapipe-worker.js) に
+//   ImageBitmap を転送して行う（メインスレッドをブロックしない）。
 //
 //   ※modeState.current が 'inochi' のときは applyLandmarksToVrm の
 //    代わりに applyLandmarksToInochi を呼ぶ（VRM とは排他）
@@ -13,51 +14,73 @@ import { applyLandmarksToVrm } from 'app/tracking/apply.js';
 import { applyLandmarksToInochi } from 'app/tracking/apply-inochi.js';
 import { shoulderWidthToZoom, getShoulderWidth } from 'app/core/animation-loop.js';
 import { setDetectionActive } from 'app/core/inochi-canvas.js';
+import { detectFrame } from 'app/camera/trackers.js';
 
 const DETECTION_INTERVAL_MS = 1000 / 30;
 let lastDetectionMs = 0;
 
+// Worker への detect リクエストが往復している間は次のフレームを
+// 投げない（キュー溜まり・遅延蓄積を防ぐためのバックプレッシャー制御）。
+let inFlight = false;
+let stopped = false;
+
+export function stopDetectionLoop() {
+  stopped = true;
+  if (cameraState.detectionLoopId) {
+    cancelAnimationFrame(cameraState.detectionLoopId);
+    cameraState.detectionLoopId = null;
+  }
+}
+
 export function runDetectionLoop() {
-  if (!cameraState.mediaStream || !cameraState.trackersReady) return;
+  stopped = false;
+  scheduleNext();
+}
+
+function scheduleNext() {
+  if (stopped) return;
+  cameraState.detectionLoopId = requestAnimationFrame(tick);
+}
+
+async function tick() {
+  if (stopped || !cameraState.mediaStream || !cameraState.trackersReady) return;
 
   const nowMs = performance.now();
-  if (lastDetectionMs && nowMs - lastDetectionMs < DETECTION_INTERVAL_MS) {
-    cameraState.detectionLoopId = requestAnimationFrame(runDetectionLoop);
+  if (inFlight || (lastDetectionMs && nowMs - lastDetectionMs < DETECTION_INTERVAL_MS)) {
+    scheduleNext();
+    return;
+  }
+  if (ui.video.readyState < 2 /* HAVE_CURRENT_DATA */ || ui.video.videoWidth === 0) {
+    scheduleNext();
     return;
   }
   lastDetectionMs = nowMs;
+  inFlight = true;
 
   // Inochi2D モード時は detection-loop 側で apply を呼ぶことを通知
   if (modeState.current === 'inochi') setDetectionActive(true);
 
-  let faceResult, poseResult, handResult;
   try {
-    faceResult = cameraState.faceLandmarker.detectForVideo(ui.video, nowMs);
-    poseResult = cameraState.poseLandmarker.detectForVideo(ui.video, nowMs);
-    handResult = cameraState.handLandmarker.detectForVideo(ui.video, nowMs);
+    // メインスレッド上の <video> から ImageBitmap を作成し、
+    // 所有権ごと Worker へ転送する（構造化複製ではなくゼロコピー転送）。
+    const bitmap = await createImageBitmap(ui.video);
+    const result = await detectFrame(bitmap, nowMs);
+    applyResult(result);
   } catch (err) {
     console.warn('[Tracking] detection failed; loop will recover:', err);
-    cameraState.detectionLoopId = requestAnimationFrame(runDetectionLoop);
-    return;
+  } finally {
+    inFlight = false;
+    scheduleNext();
   }
+}
 
-
+function applyResult(result) {
   // ── 検出結果を最新ランドマークへ反映 ──
-  latestLandmarks.hands = [];
-  if (handResult.landmarks) {
-    for (let i = 0; i < handResult.landmarks.length; i++) {
-      latestLandmarks.hands.push({
-        landmarks: handResult.landmarks[i],
-        handedness: handResult.handedness?.[i]?.[0]?.categoryName ?? null,
-        score: handResult.handedness?.[i]?.[0]?.score ?? 0,
-      });
-    }
-  }
-
-  latestLandmarks.face = faceResult.faceLandmarks?.[0] ?? null;
-  latestLandmarks.pose = poseResult.landmarks?.[0] ?? null;
-  latestLandmarks.faceBlendshapes = faceResult.faceBlendshapes?.[0]?.categories ?? null;
-  latestLandmarks.headMatrix = faceResult.facialTransformationMatrixes?.[0]?.data ?? null;
+  latestLandmarks.hands = result.hands ?? [];
+  latestLandmarks.face = result.face ?? null;
+  latestLandmarks.pose = result.pose ?? null;
+  latestLandmarks.faceBlendshapes = result.faceBlendshapes ?? null;
+  latestLandmarks.headMatrix = result.headMatrix ?? null;
 
   // ── ズーム調整（VRM モード時のみ）──
   if (modeState.current === 'vrm') {
@@ -84,6 +107,4 @@ export function runDetectionLoop() {
   } else if (sceneState.currentVrm) {
     applyLandmarksToVrm(sceneState.currentVrm);
   }
-
-  cameraState.detectionLoopId = requestAnimationFrame(runDetectionLoop);
 }

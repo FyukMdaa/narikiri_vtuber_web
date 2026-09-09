@@ -19,12 +19,11 @@ export const sceneState = {
 };
 
 // カメラ・トラッカー関連
+//   ※ MediaPipe の3トラッカー本体は js/tracking/mediapipe-worker.js の
+//     Web Worker 内で保持される（メインスレッドは Worker 経由で操作する）。
 export const cameraState = {
   mediaStream: null,        // getUserMedia で取得したストリーム
   trackersReady: false,     // MediaPipe 3トラッカーの初期化完了フラグ
-  faceLandmarker: null,
-  poseLandmarker: null,
-  handLandmarker: null,
   detectionLoopId: null,    // requestAnimationFrame の ID
 };
 
