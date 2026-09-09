@@ -22,8 +22,8 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
 
-const MODELS_DIR = path.join(ROOT, 'assets', 'mediapipe', 'models');
-const VENDOR_DIR = path.join(ROOT, 'js', 'vendor', 'mediapipe');
+const MODELS_DIR = path.join(ROOT, 'web', 'assets', 'mediapipe', 'models');
+const VENDOR_DIR = path.join(ROOT, 'web', 'js', 'vendor', 'mediapipe');
 
 // バージョンを上げたい場合はここを変更し、package.json の devDependency も揃える。
 const MODEL_URLS = {

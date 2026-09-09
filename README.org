@@ -27,9 +27,25 @@ npm install
 npm run fetch:mediapipe
 #+end_src
 これにより以下が用意されます（すべて外部CDNへ依存せず同一オリジンから配信）:
-- ~js/vendor/mediapipe/~ … ~@mediapipe/tasks-vision~ のESMバンドル + WASM
-- ~assets/mediapipe/models/~ … face / pose / hand の各 ~.task~ モデルファイル
+- ~web/js/vendor/mediapipe/~ … ~@mediapipe/tasks-vision~ のESMバンドル + WASM
+- ~web/assets/mediapipe/models/~ … face / pose / hand の各 ~.task~ モデルファイル
   （容量が大きいため git 管理外。初回セットアップ時に必ず取得してください）
+
+** ディレクトリ構成
+Tauriの ~frontendDist~ は ~node_modules~ や ~src-tauri~ を含んではいけない
+という制約があるため、ブラウザに配信するWeb資産一式は ~web/~ 配下に
+分離してあります。
+#+begin_src text
+.
+├── web/              ← ブラウザ配信物（index.html, css/, js/, assets/）
+│   ├── index.html
+│   ├── css/
+│   ├── js/
+│   └── assets/mediapipe/models/  ← fetch:mediapipe で取得
+├── scripts/          ← devサーバ・アセット取得スクリプト (Node)
+├── src-tauri/         ← Tauriアプリ (Rust)
+└── package.json
+#+end_src
 
 ** ブラウザで開発 (これまで通り)
 #+begin_src sh
@@ -73,10 +89,10 @@ Windows・Linux(ubuntu-22.04)・macOS(universal) 向けに自動ビルドしま�
 
 * アーキテクチャ変更点 (MediaPipe)
 
-- ~js/vendor/mediapipe/~ にESM/WASMバンドルを自己ホスト
+- ~web/js/vendor/mediapipe/~ にESM/WASMバンドルを自己ホスト
   （~jsdelivr~・~storage.googleapis.com~ へは実行時アクセスしません）。
 - 実際の検出処理 (FaceLandmarker / PoseLandmarker / HandLandmarker) は
-  ~js/tracking/mediapipe-worker.js~ という専用 Web Worker 内で実行され、
+  ~web/js/tracking/mediapipe-worker.js~ という専用 Web Worker 内で実行され、
   メインスレッド (UI/描画) をブロックしません。
   - Worker には ~document~ が存在しないため、GPUデリゲート使用時は
     tasks-vision が内部で ~OffscreenCanvas~ を用いて描画コンテキストを
@@ -86,7 +102,7 @@ Windows・Linux(ubuntu-22.04)・macOS(universal) 向けに自動ビルドしま�
     切り出し、所有権ごと ~postMessage~ で Worker へ転送（ゼロコピー）
     します。検出結果（ランドマーク等）はJSONシリアライズ可能な
     プレーンオブジェクトとして送り返されます。
-  - ~js/camera/trackers.js~ がPromiseベースのRPCレイヤーとして
-    Workerとの通信を仲介し、~js/tracking/detection-loop.js~ は
+  - ~web/js/camera/trackers.js~ がPromiseベースのRPCレイヤーとして
+    Workerとの通信を仲介し、~web/js/tracking/detection-loop.js~ は
     1フレーム分の検出が完了するまで次のフレームを投げない
     バックプレッシャー制御を行うことでキュー溜まりを防いでいます。

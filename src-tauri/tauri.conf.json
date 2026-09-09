@@ -7,7 +7,7 @@
     "beforeDevCommand": "npm run dev",
     "beforeBuildCommand": "npm run fetch:mediapipe",
     "devUrl": "http://127.0.0.1:1420",
-    "frontendDist": "../"
+    "frontendDist": "../web"
   },
   "app": {
     "windows": [

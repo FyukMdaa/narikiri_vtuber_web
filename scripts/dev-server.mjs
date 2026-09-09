@@ -11,7 +11,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const ROOT = path.resolve(__dirname, '..');
+const ROOT = path.resolve(__dirname, '..', 'web');
 const PORT = Number(process.env.PORT ?? 1420);
 const HOST = process.env.HOST ?? '127.0.0.1';
 
