@@ -35,7 +35,7 @@ function probeExport(exports, candidates) {
 }
 
 // ── 公式 WASM SDK のロードを試みる ──
-//   1. ./inochi2d_wasm.js (wasm-pack グルー) があれば dynamic import
+//   1. ./inochi2d-wasm.js (wasm-pack グルー) があれば dynamic import
 //   2. 無ければ ./inochi2d_wasm_bg.wasm を直接 instantiateStreaming
 //   3. どちらも失敗したら null を返す（呼び出し側で JS フォールバックへ）
 async function tryLoadWasm() {
@@ -43,7 +43,7 @@ async function tryLoadWasm() {
 
   // (1) wasm-pack 形式のグルースクリプトを試す
   try {
-    const glueModule = await import(/* @vite-ignore */ './inochi2d_wasm.js');
+    const glueModule = await import(/* @vite-ignore */ './inochi2d-wasm.js');
     if (glueModule?.default && typeof glueModule.default === 'function') {
       // wasm-pack --target web の default は非同期 init を含む
       await glueModule.default(new URL('./inochi2d_wasm_bg.wasm', base));

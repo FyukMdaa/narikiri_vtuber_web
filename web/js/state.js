@@ -19,8 +19,8 @@ export const sceneState = {
 };
 
 // カメラ・トラッカー関連
-//   ※ MediaPipe の3トラッカー本体は js/tracking/mediapipe-worker.js の
-//     Web Worker 内で保持される（メインスレッドは Worker 経由で操作する）。
+//   ※ MediaPipe の3トラッカー本体はメインスレッドで保持する。
+//     Tasks Vision bundle は Module Worker 内の importScripts() と非互換のため。
 export const cameraState = {
   mediaStream: null,        // getUserMedia で取得したストリーム
   trackersReady: false,     // MediaPipe 3トラッカーの初期化完了フラグ

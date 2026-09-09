@@ -1,8 +1,8 @@
 // ──────────────────────────────────────────────────────────────
 // inochi2d-wasm.js — Inochi2D 公式 WASM SDK の薄いローダ
 //   - runtime.js から呼ばれることを想定
-//   - wasm-pack --target web の出力形式（default export = init関数）
-//     と、生 wasm の instantiateStreaming 両方を吸収
+//   - このファイル自身はプロジェクト側の薄いローダ
+//   - 隣接する `inochi2d_wasm_bg.wasm` を直接ロードする
 //
 //   このファイル自体は wasm のバイナリを同梱せず、隣の
 //   `inochi2d_wasm_bg.wasm` を fetch して instantiate するだけ。
@@ -19,24 +19,8 @@ async function ensureInit() {
   _initPromise = (async () => {
     const base = new URL('./', import.meta.url).href;
 
-    // (1) wasm-pack グルーがある場合はそちらを優先
-    try {
-      const glueModule = await import(/* @vite-ignore */ './inochi2d_wasm.js')
-        .catch(() => null);
-      if (glueModule) {
-        if (typeof glueModule.default === 'function') {
-          // wasm-pack --target web 形式
-          await glueModule.default(new URL('./inochi2d_wasm_bg.wasm', base));
-        } else if (typeof glueModule.init === 'function') {
-          await glueModule.init(new URL('./inochi2d_wasm_bg.wasm', base));
-        }
-        // glue が init した後は glueModule 自体が export を持つ
-        _exports = glueModule;
-        return _exports;
-      }
-    } catch (e) {
-      // fallthrough
-    }
+    // このプロジェクトではこのファイル自身が薄いローダであり、
+    // 同名の wasm-pack glue を再 import しない。再帰的な404を防ぐ。
 
     // (2) 直接 instantiateStreaming / instantiate
     try {

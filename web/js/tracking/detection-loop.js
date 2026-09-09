@@ -1,8 +1,9 @@
 // ──────────────────────────────────────────────────────────────
 // detection-loop.js - MediaPipe 検出ループ
-//   毎フレーム face / pose / hand を検出し、オーバーレイ描画と
-//   VRM 適用を行う。実際の検出は Web Worker (mediapipe-worker.js) に
-//   ImageBitmap を転送して行う（メインスレッドをブロックしない）。
+//   face / pose / hand を約30Hzで検出し、オーバーレイ描画と
+//   VRM / Inochi2D 適用を行う。MediaPipe の検出自体はメインスレッドで
+//   実行する（Tasks Vision bundle が Module Worker 内の importScripts() と
+//   非互換なため）。描画の rAF とは検出間隔を分離する。
 //
 //   ※modeState.current が 'inochi' のときは applyLandmarksToVrm の
 //    代わりに applyLandmarksToInochi を呼ぶ（VRM とは排他）
@@ -61,10 +62,9 @@ async function tick() {
   if (modeState.current === 'inochi') setDetectionActive(true);
 
   try {
-    // メインスレッド上の <video> から ImageBitmap を作成し、
-    // 所有権ごと Worker へ転送する（構造化複製ではなくゼロコピー転送）。
-    const bitmap = await createImageBitmap(ui.video);
-    const result = await detectFrame(bitmap, nowMs);
+    // MediaPipe Tasks Vision は HTMLVideoElement を直接受け取れる。
+    // ImageBitmap 化や Worker 転送は行わない。
+    const result = await detectFrame(ui.video, nowMs);
     applyResult(result);
   } catch (err) {
     console.warn('[Tracking] detection failed; loop will recover:', err);
