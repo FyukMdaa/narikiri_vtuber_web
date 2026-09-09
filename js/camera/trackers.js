@@ -20,9 +20,16 @@ const MODELS = {
 // 3つのトラッカーを順に初期化。失敗時は例外を上層へ伝播。
 export async function initTrackers() {
   if (cameraState.trackersReady) return;
+  for (const key of ['faceLandmarker', 'poseLandmarker', 'handLandmarker']) {
+    if (cameraState[key]) {
+      try { cameraState[key].close?.(); } catch {}
+      cameraState[key] = null;
+    }
+  }
   ui.statusTag.textContent = 'トラッキングモデルを読み込み中…';
 
-  const vision = await FilesetResolver.forVisionTasks(WASM_CDN);
+  try {
+    const vision = await FilesetResolver.forVisionTasks(WASM_CDN);
 
   cameraState.faceLandmarker = await FaceLandmarker.createFromOptions(vision, {
     baseOptions: { modelAssetPath: MODELS.face, delegate: 'GPU' },
@@ -45,5 +52,13 @@ export async function initTrackers() {
     outputHandedness: true,
   });
 
-  cameraState.trackersReady = true;
+    cameraState.trackersReady = true;
+  } catch (err) {
+    for (const key of ['faceLandmarker', 'poseLandmarker', 'handLandmarker']) {
+      try { cameraState[key]?.close?.(); } catch {}
+      cameraState[key] = null;
+    }
+    cameraState.trackersReady = false;
+    throw err;
+  }
 }

@@ -14,16 +14,33 @@ import { applyLandmarksToInochi } from 'app/tracking/apply-inochi.js';
 import { shoulderWidthToZoom, getShoulderWidth } from 'app/core/animation-loop.js';
 import { setDetectionActive } from 'app/core/inochi-canvas.js';
 
+const DETECTION_INTERVAL_MS = 1000 / 30;
+let lastDetectionMs = 0;
+
 export function runDetectionLoop() {
   if (!cameraState.mediaStream || !cameraState.trackersReady) return;
+
+  const nowMs = performance.now();
+  if (lastDetectionMs && nowMs - lastDetectionMs < DETECTION_INTERVAL_MS) {
+    cameraState.detectionLoopId = requestAnimationFrame(runDetectionLoop);
+    return;
+  }
+  lastDetectionMs = nowMs;
 
   // Inochi2D モード時は detection-loop 側で apply を呼ぶことを通知
   if (modeState.current === 'inochi') setDetectionActive(true);
 
-  const nowMs = performance.now();
-  const faceResult = cameraState.faceLandmarker.detectForVideo(ui.video, nowMs);
-  const poseResult = cameraState.poseLandmarker.detectForVideo(ui.video, nowMs);
-  const handResult = cameraState.handLandmarker.detectForVideo(ui.video, nowMs);
+  let faceResult, poseResult, handResult;
+  try {
+    faceResult = cameraState.faceLandmarker.detectForVideo(ui.video, nowMs);
+    poseResult = cameraState.poseLandmarker.detectForVideo(ui.video, nowMs);
+    handResult = cameraState.handLandmarker.detectForVideo(ui.video, nowMs);
+  } catch (err) {
+    console.warn('[Tracking] detection failed; loop will recover:', err);
+    cameraState.detectionLoopId = requestAnimationFrame(runDetectionLoop);
+    return;
+  }
+
 
   // ── 検出結果を最新ランドマークへ反映 ──
   latestLandmarks.hands = [];

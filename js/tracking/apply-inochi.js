@@ -128,7 +128,7 @@ function smooth(prev, next, rate) {
 //      - 頭部 + 表情 (headMatrix / blendshapes)
 //      - 腕 / 全身 (pose landmarks)
 //   ※ update(dt) で bindings が評価され、ノード transform / deform へ反映される。
-export function applyLandmarksToInochi(puppetHandle) {
+export function applyLandmarksToInochi(puppetHandle, deltaSeconds = null) {
   if (!puppetHandle) return;
 
   const map = inochiState.paramMap;
@@ -180,7 +180,15 @@ export function applyLandmarksToInochi(puppetHandle) {
 
   // bindings を評価 → ノード transform / deform へ反映
   //   (WASM バックエンド時は物理ステップも兼ねる)
-  puppetHandle.update(1 / 60);
+  const now = performance.now();
+  let dt = deltaSeconds;
+  if (!Number.isFinite(dt) || dt == null) {
+    const prev = inochiState._lastUpdateTime;
+    dt = prev > 0 ? (now - prev) * 0.001 : 1 / 60;
+  }
+  inochiState._lastUpdateTime = now;
+  // 長いタブ停止/スロットリング後の物理暴走を防ぎつつ、固定1/60ではなく実時間へ追従。
+  puppetHandle.update(Math.min(Math.max(dt, 0), 0.1));
 }
 
 // ── 頭部 + 表情の適用 ──

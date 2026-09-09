@@ -27,7 +27,24 @@ import { decodeTgaToBitmap } from 'app/core/tga-decoder.js';
 //         - レンダラ側で Composite を FBO に描いて blend_mode/tint で合成
 //   ※ http-server 等は Cache: 3600 を返すので、JS 差し替え後は強制リロード
 //     (Ctrl+Shift+R) が必要。このログが出ない場合は古いキャッシュが走っている。
-export const INOCHI_PIPELINE_VERSION = 5;
+export const INOCHI_PIPELINE_VERSION = 6;
+
+// 悪意のある/破損した .inp がブラウザをメモリ枯渇させないための上限。
+const LIMITS = Object.freeze({
+  fileBytes: 100 * 1024 * 1024,
+  jsonBytes: 16 * 1024 * 1024,
+  textures: 256,
+  textureBytes: 64 * 1024 * 1024,
+  texturePixels: 32 * 1024 * 1024,
+  maxTextureDimension: 8192,
+  zipEntries: 256,
+  zipUncompressedBytes: 128 * 1024 * 1024,
+  zipEntryUncompressedBytes: 64 * 1024 * 1024,
+  nodes: 10000,
+  params: 2000,
+  maxNodeDepth: 256,
+  meshVertices: 2_000_000,
+});
 
 let _runtimePromise = null;
 
@@ -63,6 +80,10 @@ export function detectInpFormat(arrayBuffer) {
 //   無ければ純 JS でパースして JS フォールバック用 puppet を構築し、
 //   PuppetHandle でラップしてから返す。
 export async function loadInp(arrayBuffer) {
+  if (!(arrayBuffer instanceof ArrayBuffer)) throw new Error('Inochi2D .inp: invalid ArrayBuffer');
+  if (arrayBuffer.byteLength > LIMITS.fileBytes) {
+    throw new Error(`Inochi2D .inp: file is too large (max ${LIMITS.fileBytes / 1024 / 1024} MiB)`);
+  }
   const runtime = await getRuntime();
   // WASM バックエンドがある場合はそちらへ委譲
   //   ※ wasm 側が両形式をサポートしている前提。
@@ -113,7 +134,9 @@ async function parseTrnsInp(arrayBuffer) {
   const dv = new DataView(arrayBuffer);
 
   // 1. JSON 長
+  if (bytes.length < 12) throw new Error('Inochi2D TRNSRTS: truncated header');
   const jsonLen = dv.getUint32(8, false /* big-endian */);
+  if (jsonLen > LIMITS.jsonBytes) throw new Error(`Inochi2D TRNSRTS: JSON section too large (max ${LIMITS.jsonBytes / 1024 / 1024} MiB)`);
   if (12 + jsonLen > bytes.length) {
     throw new Error('Inochi2D TRNSRTS: declared JSON length exceeds file size');
   }
@@ -131,8 +154,10 @@ async function parseTrnsInp(arrayBuffer) {
   pos += 8;
 
   // 4. テクスチャ数 (公式仕様: 単純な BE uint32。ヒューリスティック不要)
+  if (pos + 4 > bytes.length) throw new Error('Inochi2D TRNSRTS: texture count truncated');
   const texCount = dv.getUint32(pos, false);
   pos += 4;
+  if (texCount > LIMITS.textures) throw new Error(`Inochi2D TRNSRTS: too many textures (${texCount}, max ${LIMITS.textures})`);
 
   // 5. 各テクスチャエントリを逐次読み (公式仕様どおり。総当たり検索不要)
   //   entry:
@@ -141,6 +166,7 @@ async function parseTrnsInp(arrayBuffer) {
   //     N bytes  payload
   const TEX_ENC = { PNG: 0, TGA: 1, BC7: 2 };
   const texEntries = [];
+  let totalTextureBytes = 0;
   for (let t = 0; t < texCount; t++) {
     if (pos + 5 > bytes.length) {
       throw new Error(`Inochi2D TRNSRTS: texture entry ${t}: header truncated (pos=${pos}, fileSize=${bytes.length})`);
@@ -151,6 +177,10 @@ async function parseTrnsInp(arrayBuffer) {
     pos += 1;
     if (pos + payloadLen > bytes.length) {
       throw new Error(`Inochi2D TRNSRTS: texture entry ${t}: payload length ${payloadLen} exceeds file size (pos=${pos}, fileSize=${bytes.length})`);
+    }
+    totalTextureBytes += payloadLen;
+    if (payloadLen > LIMITS.textureBytes || totalTextureBytes > LIMITS.textureBytes) {
+      throw new Error(`Inochi2D TRNSRTS: texture payload exceeds safety limit (max ${LIMITS.textureBytes / 1024 / 1024} MiB total)`);
     }
     const payload = bytes.subarray(pos, pos + payloadLen);
     pos += payloadLen;
@@ -184,6 +214,12 @@ async function parseTrnsInp(arrayBuffer) {
       } else {
         throw new Error(`unknown texture encoding ${encoding}`);
       }
+      if (!Number.isSafeInteger(width) || !Number.isSafeInteger(height) ||
+          width <= 0 || height <= 0 || width > LIMITS.maxTextureDimension ||
+          height > LIMITS.maxTextureDimension || width * height > LIMITS.texturePixels) {
+        bitmap?.close?.();
+        throw new Error(`texture dimensions exceed safety limit: ${width}x${height}`);
+      }
       textures.push({
         name: String(i),    // インデックス参照なので番号を名前にする
         index: i,
@@ -199,7 +235,12 @@ async function parseTrnsInp(arrayBuffer) {
   }
 
   // 7. puppet.json を新しい構造でパース → 描画用ノードツリーを構築
+  if (!Array.isArray(puppetJson.nodes)) throw new Error('Inochi2D TRNSRTS: nodes must be an array');
+  if (puppetJson.nodes.length > LIMITS.nodes) throw new Error(`Inochi2D TRNSRTS: too many root nodes (max ${LIMITS.nodes})`);
+  if (!Array.isArray(puppetJson.param || [])) throw new Error('Inochi2D TRNSRTS: param must be an array');
+  if ((puppetJson.param || []).length > LIMITS.params) throw new Error(`Inochi2D TRNSRTS: too many parameters (max ${LIMITS.params})`);
   const flatNodes = flattenTrnsNodes(puppetJson.nodes, textures);
+  if (flatNodes.length > LIMITS.nodes) throw new Error(`Inochi2D TRNSRTS: too many nodes (max ${LIMITS.nodes})`);
 
   // 7.5 各ノードの restTransform と deformOffsets を初期化
   //   (computeWorldTransforms が transform を読むので、先に初期化しておく)
@@ -599,6 +640,11 @@ async function parseZipInp(arrayBuffer) {
     try {
       const blob = new Blob([bytes], { type: 'image/png' });
       const bitmap = await createImageBitmap(blob);
+      if (bitmap.width > LIMITS.maxTextureDimension || bitmap.height > LIMITS.maxTextureDimension ||
+          bitmap.width * bitmap.height > LIMITS.texturePixels) {
+        bitmap.close?.();
+        throw new Error(`texture dimensions exceed safety limit: ${bitmap.width}x${bitmap.height}`);
+      }
       const tex = {
         name: name.replace(basePath, ''),
         bitmap,
@@ -641,7 +687,9 @@ async function parseZipInp(arrayBuffer) {
 
 // 旧形式の flatten (v0.6 用)
 function flattenOldNodes(nodes, parent, out, basePath, texMap, depth = 0) {
+  if (depth > LIMITS.maxNodeDepth) throw new Error(`Inochi2D ZIP: node tree exceeds max depth ${LIMITS.maxNodeDepth}`);
   for (const node of nodes) {
+    if (out.length >= LIMITS.nodes) throw new Error(`Inochi2D ZIP: node count exceeds max ${LIMITS.nodes}`);
     const flat = {
       uuid: node.uuid,
       name: node.name || node.uuid,
@@ -656,6 +704,7 @@ function flattenOldNodes(nodes, parent, out, basePath, texMap, depth = 0) {
 
     if (node.type === 'deform' || (!node.type && node.mesh)) {
       const mesh = node.mesh || {};
+      if ((mesh.vertices?.length || 0) > LIMITS.meshVertices * 2) throw new Error(`Inochi2D ZIP: mesh is too large (max ${LIMITS.meshVertices} vertices)`);
       flat.mesh = {
         vertices: new Float32Array(mesh.vertices || []),
         uvs: new Float32Array(mesh.uvs || mesh.uv || []),
@@ -686,13 +735,20 @@ async function unzipArrayBuffer(buf) {
   }
   if (eocd < 0) throw new Error('Inochi2D .inp (ZIP): EOCD not found (not a ZIP?)');
   const cdCount   = dv.getUint16(eocd + 10, true);
+  if (cdCount > LIMITS.zipEntries) throw new Error(`Inochi2D .inp (ZIP): too many entries (${cdCount}, max ${LIMITS.zipEntries})`);
   let cdOffset    = dv.getUint32(eocd + 16, true);
 
+  let totalUncompressed = 0;
   for (let i = 0; i < cdCount; i++) {
     if (dv.getUint32(cdOffset, true) !== 0x02014b50) throw new Error('Inochi2D .inp (ZIP): bad CD entry');
     const compMethod   = dv.getUint16(cdOffset + 10, true);
     const compSize     = dv.getUint32(cdOffset + 20, true);
     const uncompSize   = dv.getUint32(cdOffset + 24, true);
+    if (uncompSize > LIMITS.zipEntryUncompressedBytes ||
+        totalUncompressed + uncompSize > LIMITS.zipUncompressedBytes) {
+      throw new Error(`Inochi2D .inp (ZIP): uncompressed data exceeds safety limit at ${nameLen ? 'entry' : 'entry'}`);
+    }
+    totalUncompressed += uncompSize;
     const nameLen      = dv.getUint16(cdOffset + 28, true);
     const extraLen     = dv.getUint16(cdOffset + 30, true);
     const commentLen   = dv.getUint16(cdOffset + 32, true);
@@ -704,6 +760,10 @@ async function unzipArrayBuffer(buf) {
     const lExtraLen = dv.getUint16(localOffset + 28, true);
     const dataStart = localOffset + 30 + lNameLen + lExtraLen;
     const compData  = new Uint8Array(buf, dataStart, compSize);
+
+    if (compMethod === 8 && uncompSize > 1024 && compSize > 0 && uncompSize / compSize > 200) {
+      throw new Error(`Inochi2D .inp (ZIP): suspicious compression ratio for entry ${name}`);
+    }
 
     let out;
     if (compMethod === 0) {

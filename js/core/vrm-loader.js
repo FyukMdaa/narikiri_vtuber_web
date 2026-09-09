@@ -17,6 +17,7 @@ import {
 } from 'app/utils/temp-objects.js';
 
 const gltfLoader = new GLTFLoader();
+let vrmLoadSerial = 0;
 gltfLoader.register((parser) => new VRMLoaderPlugin(parser));
 
 // VRMボーン取得（キャッシュ付き）
@@ -92,15 +93,23 @@ export function setKiotsukePose(vrm) {
 
 // ファイルからVRMを読み込む
 export async function loadVrm(url, fileName) {
+  const loadSerial = ++vrmLoadSerial;
   ui.statusTag.textContent = `「${fileName}」を読み込み中…`;
   ui.btnLoadVrm.disabled = true;
   try {
     const gltf = await gltfLoader.loadAsync(url);
     const vrm = gltf.userData.vrm;
+    if (!vrm) throw new Error('VRM plugin did not produce a VRM object');
 
     VRMUtils.removeUnnecessaryVertices(gltf.scene);
     VRMUtils.removeUnnecessaryJoints(gltf.scene);
     vrm.scene.traverse((obj) => { obj.frustumCulled = false; });
+
+    // より新しいロードが開始されていたら、この結果は破棄する。
+    if (loadSerial !== vrmLoadSerial) {
+      VRMUtils.deepDispose(vrm.scene);
+      return;
+    }
 
     disposeCurrentVrm();
     sceneState.placeholder.visible = false;
@@ -122,12 +131,17 @@ export async function loadVrm(url, fileName) {
     sceneState.camera3d.zoom = 1.0;
     sceneState.camera3d.updateProjectionMatrix();
 
+    // 気をつけポーズで上書きする前に、正規化ボーンの初期姿勢を保存する。
+    // （後から保存すると「restQuat」ではなく気をつけ姿勢を保存してしまう。）
+    if (vrm.humanoid?.humanBones) {
+      for (const [boneName, bone] of Object.entries(vrm.humanoid.humanBones)) {
+        const node = bone?.node || getBone(vrm, boneName);
+        if (node) node.userData.restQuat = node.quaternion.clone();
+      }
+    }
+
     setKiotsukePose(vrm);
     vrm.update(0);
-
-    vrm.humanoid.forEach((boneName, node) => {
-      node.userData.restQuat = node.quaternion.clone();
-    });
 
     updateFullBodyCache(vrm);
     ui.statusTag.textContent = `「${fileName}」を表示中`;

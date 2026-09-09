@@ -139,6 +139,9 @@ export class InochiRenderer {
     this._nodeXformMat = new Float32Array(9); // per-node T*R*S
     this._nodeByUuid = new Map();        // uuid -> flat node (マスク源解決用)
     this._compositeMembers = new Map();  // Composite uuid -> subParts[]
+    // PartごとのGPUバッファ/CPU作業領域。描画時のTypedArray生成を避ける。
+    this._meshGpu = new WeakMap();
+    this._uvXform = new Float32Array(9);
 
     // Composite 用オフスクリーン FBO
     this._compFbo = null;
@@ -250,8 +253,14 @@ export class InochiRenderer {
 
   refreshRenderData() {
     if (!this._puppet) return;
-    this._renderData = this._puppet.getRenderData();
-    this._rebuildNodeIndex(this._renderData);
+    const data = this._puppet.getRenderData();
+    // WASMが同じrender-dataオブジェクトを更新する実装なら、Mapを再構築しない。
+    if (data !== this._renderData) {
+      this._renderData = data;
+      this._rebuildNodeIndex(data);
+    } else {
+      this._renderData = data;
+    }
   }
 
   _rebuildNodeIndex(data) {
@@ -301,6 +310,50 @@ export class InochiRenderer {
     this._compRbo = null;
     this._compW = 0;
     this._compH = 0;
+  }
+
+  _ensureMeshGpu(mesh) {
+    let gpu = this._meshGpu.get(mesh);
+    const gl = this.gl;
+    const vertexLength = mesh.vertices.length;
+    const indexData = mesh.indices instanceof Uint16Array ? mesh.indices : new Uint16Array(mesh.indices);
+    const uvs = mesh.uvs && mesh.uvs.length > 0 ? mesh.uvs : defaultUVs(mesh.vertices.length / 2);
+
+    if (!gpu) {
+      gpu = {
+        pos: gl.createBuffer(),
+        uv: gl.createBuffer(),
+        index: gl.createBuffer(),
+        posArray: new Float32Array(vertexLength),
+        uvArray: uvs instanceof Float32Array ? uvs : new Float32Array(uvs),
+        indexArray: indexData,
+        posCapacity: vertexLength,
+        indexLength: indexData.length,
+        uvLength: uvs.length,
+        initialized: false,
+      };
+      this._meshGpu.set(mesh, gpu);
+    } else if (gpu.posCapacity !== vertexLength) {
+      gpu.posArray = new Float32Array(vertexLength);
+      gpu.posCapacity = vertexLength;
+      gpu.initialized = false;
+    }
+
+    // UV/indicesはメッシュのトポロジ情報なので初回だけGPUへ送る。
+    if (!gpu.initialized || gpu.uvLength !== uvs.length) {
+      gpu.uvArray = uvs instanceof Float32Array ? uvs : new Float32Array(uvs);
+      gpu.uvLength = gpu.uvArray.length;
+      gl.bindBuffer(gl.ARRAY_BUFFER, gpu.uv);
+      gl.bufferData(gl.ARRAY_BUFFER, gpu.uvArray, gl.STATIC_DRAW);
+    }
+    if (!gpu.initialized || gpu.indexLength !== indexData.length) {
+      gpu.indexArray = indexData;
+      gpu.indexLength = indexData.length;
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, gpu.index);
+      gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, gpu.indexArray, gl.STATIC_DRAW);
+    }
+    gpu.initialized = true;
+    return gpu;
   }
 
   // 1フレーム描画
@@ -373,7 +426,8 @@ export class InochiRenderer {
         const verts = mesh.vertices;
         const deform = node._deformOffsets;
         const n = verts.length / 2;
-        const posArr = new Float32Array(verts.length);
+        const gpu = this._ensureMeshGpu(mesh);
+        const posArr = gpu.posArray;
         for (let i = 0; i < n; i++) {
           let x = verts[i * 2];
           let y = verts[i * 2 + 1];
@@ -384,31 +438,32 @@ export class InochiRenderer {
           posArr[i * 2] = x;
           posArr[i * 2 + 1] = y;
         }
-        const uvs = mesh.uvs;
-        const uvArr = (uvs && uvs.length > 0) ? uvs : defaultUVs(n);
 
         gl.bindVertexArray(this._vao);
 
-        gl.bindBuffer(gl.ARRAY_BUFFER, this._vboPos);
-        gl.bufferData(gl.ARRAY_BUFFER, posArr, gl.DYNAMIC_DRAW);
+        gl.bindBuffer(gl.ARRAY_BUFFER, gpu.pos);
+        if (!gpu.posInitialized) {
+          gl.bufferData(gl.ARRAY_BUFFER, posArr, gl.DYNAMIC_DRAW);
+          gpu.posInitialized = true;
+        } else {
+          gl.bufferSubData(gl.ARRAY_BUFFER, 0, posArr);
+        }
         gl.enableVertexAttribArray(this._loc.a_pos);
         gl.vertexAttribPointer(this._loc.a_pos, 2, gl.FLOAT, false, 0, 0);
 
-        gl.bindBuffer(gl.ARRAY_BUFFER, this._vboUv);
-        gl.bufferData(gl.ARRAY_BUFFER, uvArr, gl.DYNAMIC_DRAW);
+        gl.bindBuffer(gl.ARRAY_BUFFER, gpu.uv);
         gl.enableVertexAttribArray(this._loc.a_uv);
         gl.vertexAttribPointer(this._loc.a_uv, 2, gl.FLOAT, false, 0, 0);
 
-        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this._ibo);
-        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(mesh.indices), gl.DYNAMIC_DRAW);
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, gpu.index);
 
         const uvXform = mesh.uvTransform || [1, 1, 0, 0];
-        const u_uvXform = new Float32Array([
+        this._uvXform.set([
           uvXform[0] || 1, 0, 0,
           0, uvXform[1] || 1, 0,
           uvXform[2] || 0, uvXform[3] || 0, 1,
         ]);
-        gl.uniformMatrix3fv(this._loc.u_uvXform, false, u_uvXform);
+        gl.uniformMatrix3fv(this._loc.u_uvXform, false, this._uvXform);
 
         if (node.worldMatrix) {
           this._nodeXformMat.set(node.worldMatrix);
@@ -536,8 +591,20 @@ export class InochiRenderer {
 
   // パペットの破棄
   detachPuppet() {
+    const gl = this.gl;
+    const nodes = this._renderData?.nodes || [];
+    for (const node of nodes) {
+      const mesh = node.mesh;
+      const gpu = mesh ? this._meshGpu.get(mesh) : null;
+      if (gpu) {
+        gl.deleteBuffer(gpu.pos);
+        gl.deleteBuffer(gpu.uv);
+        gl.deleteBuffer(gpu.index);
+      }
+    }
+    this._meshGpu = new WeakMap();
     for (const t of this._textures.values()) {
-      this.gl.deleteTexture(t);
+      gl.deleteTexture(t);
     }
     this._textures.clear();
     this._puppet = null;

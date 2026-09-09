@@ -106,7 +106,8 @@ export const inochiState = {
   paramMap: null,         // buildParamMap() の結果
   paramSpec: null,        // { paramName: { min, max, ... } } のキャッシュ
   brightness: 1.0,
-  _detectionActive: false, // detection-loop が動作中か（二重 update を避けるためのフラグ）
+  _detectionActive: false, // detection-loop が動作中か
+  _lastUpdateTime: 0,        // 最終 Inochi2D update 時刻
   // 平滑化用一時ステート（毎フレーム更新）
   _sm: {
     headPitch: 0, headYaw: 0, headRoll: 0,

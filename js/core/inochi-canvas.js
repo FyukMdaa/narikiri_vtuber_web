@@ -9,6 +9,8 @@ import { InochiRenderer, normalizeMeshes } from 'app/core/inochi-renderer.js';
 import { loadInpFromFile, getRuntime } from 'app/core/inochi-loader.js';
 import { buildParamMap, applyLandmarksToInochi } from 'app/tracking/apply-inochi.js';
 
+let inpLoadSerial = 0;
+
 // 初期化: InochiRenderer を構築し、キャンバスを非表示のまま保持
 export function initInochiCanvas() {
   if (!ui.inochiCanvas) {
@@ -34,6 +36,7 @@ export function resizeInochi() {
 
 // .inp ファイルをロード → モード切替 → phase 1 開始
 export async function loadInpFile(file) {
+  const loadSerial = ++inpLoadSerial;
   if (!inochiState.renderer) {
     console.error('[Inochi2D] renderer not initialized');
     return;
@@ -54,6 +57,10 @@ export async function loadInpFile(file) {
     inochiState.renderer.detachPuppet();
 
     const handle = await loadInpFromFile(file);
+    if (loadSerial !== inpLoadSerial) {
+      handle?.dispose?.();
+      return;
+    }
     if (!handle) {
       ui.statusTag.textContent = `「${file.name}」の読込に失敗`;
       return;
@@ -139,7 +146,7 @@ export function switchMode(mode) {
 // 毎フレーム呼ばれる描画フック（animation-loop.js から呼出）
 //   ※ カメラ未起動時でも呼吸 / アイドルは動かす。カメラ起動時は
 //      detection-loop.js が applyLandmarksToInochi を呼んで頭部/表情/腕を追加適用。
-export function drawInochi() {
+export function drawInochi(deltaSeconds = null) {
   if (modeState.current !== 'inochi') return;
   if (!inochiState.renderer || !inochiState.puppetHandle) return;
   inochiState.renderer.brightness = inochiState.brightness;
@@ -149,7 +156,7 @@ export function drawInochi() {
   //   ※ detection-loop が既に動いている場合は二重呼出になるが、
   //      applyLandmarksToInochi は setParam + update だけなので副作用は無い。
   if (!inochiState._detectionActive) {
-    applyLandmarksToInochi(inochiState.puppetHandle);
+    applyLandmarksToInochi(inochiState.puppetHandle, deltaSeconds);
   }
 
   // WASM バックエンドがある場合は毎フレーム getRenderData を呼んで

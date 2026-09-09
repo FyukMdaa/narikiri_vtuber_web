@@ -29,6 +29,32 @@ export async function startCamera() {
     runDetectionLoop();
   } catch (err) {
     console.error(err);
+    // カメラ取得後にトラッカー初期化が失敗しても、ストリームと
+    // 部分初期化されたトラッカーを確実に破棄して状態を巻き戻す。
+    if (cameraState.detectionLoopId) {
+      cancelAnimationFrame(cameraState.detectionLoopId);
+      cameraState.detectionLoopId = null;
+    }
+    setDetectionActive(false);
+    if (cameraState.mediaStream) {
+      cameraState.mediaStream.getTracks().forEach(t => t.stop());
+      cameraState.mediaStream = null;
+    }
+    for (const key of ['faceLandmarker', 'poseLandmarker', 'handLandmarker']) {
+      const tracker = cameraState[key];
+      if (tracker && typeof tracker.close === 'function') {
+        try { tracker.close(); } catch {}
+      }
+      cameraState[key] = null;
+    }
+    cameraState.trackersReady = false;
+    ui.video.srcObject = null;
+    ui.emptyHint.style.display = 'flex';
+    ui.btnCameraLabel.textContent = 'カメラ開始';
+    ui.btnCamera.classList.remove('active');
+    ui.btnOverlay.disabled = true;
+    ui.btnOverlay.classList.remove('active');
+    ui.paneCamera.classList.remove('tracking');
     ui.statusTag.textContent = 'カメラへのアクセスに失敗しました';
     if (err && err.name === 'NotAllowedError') {
       ui.statusTag.textContent = 'カメラの許可が必要です（ブラウザ設定を確認）';

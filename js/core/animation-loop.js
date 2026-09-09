@@ -32,7 +32,7 @@ export function animate() {
   if (modeState.current === 'inochi') {
     // Inochi2D 側の描画だけ行い、本ループの残り（VRM 更新・カメラ追従）は
     // Three.js のリソースを消費しないようにスキップする
-    drawInochi();
+    drawInochi(delta);
     updateFps();
     return;
   }

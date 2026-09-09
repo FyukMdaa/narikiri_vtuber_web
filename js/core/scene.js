@@ -53,17 +53,8 @@ export function initScene() {
   sceneState.placeholder = placeholder;
   sceneState.clock = new THREE.Clock();
 
-  // リサイズハンドラ（即時実行で初期化も兼ねる）
+  // リサイズは main.js の一元化されたハンドラが担当する。
   resizeThree();
-  // resize の度に呼ばれると高頻度すぎるため、rAFで遅延
-  let resizeRaf = null;
-  window.addEventListener('resize', () => {
-    if (resizeRaf) cancelAnimationFrame(resizeRaf);
-    resizeRaf = requestAnimationFrame(() => {
-      resizeRaf = null;
-      resizeThree();
-    });
-  });
 
   return { renderer, scene, camera3d, keyLight, ambientLight, grid, placeholder, paneModel };
 }
