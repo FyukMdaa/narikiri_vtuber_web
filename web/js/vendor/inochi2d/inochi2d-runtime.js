@@ -35,42 +35,55 @@ function probeExport(exports, candidates) {
 }
 
 // ── 公式 WASM SDK のロードを試みる ──
-//   1. ./inochi2d-wasm.js (wasm-pack グルー) があれば dynamic import
-//   2. 無ければ ./inochi2d_wasm_bg.wasm を直接 instantiateStreaming
-//   3. どちらも失敗したら null を返す（呼び出し側で JS フォールバックへ）
+//   1. ./inochi2d-wasm.js (薄いローダ) を dynamic import
+//      - 内部で ./inochi2d_wasm_bg.js (wasm-pack 公式 glue) があればそちらを優先
+//      - 無ければ ./inochi2d_wasm_bg.wasm を直接 instantiate (空 import で試みる)
+//   2. どちらも失敗したら null を返す (呼び出し側で JS フォールバックへ)
 async function tryLoadWasm() {
   const base = new URL('./', import.meta.url).href;
 
-  // (1) wasm-pack 形式のグルースクリプトを試す
+  // (1) 薄いローダ (inochi2d-wasm.js) 経由で初期化
   try {
     const glueModule = await import(/* @vite-ignore */ './inochi2d-wasm.js');
     if (glueModule?.default && typeof glueModule.default === 'function') {
-      // wasm-pack --target web の default は非同期 init を含む
-      await glueModule.default(new URL('./inochi2d_wasm_bg.wasm', base));
+      // 薄いローダの default は内部で URL を解決する。返値は _exports
+      // (WASM exports または glue モジュール または null)。
+      const resolved = await glueModule.default(new URL('./inochi2d_wasm_bg.wasm', base));
+      if (resolved && typeof resolved === 'object') {
+        return resolved;
+      }
     } else if (glueModule?.init && typeof glueModule.init === 'function') {
       await glueModule.init(new URL('./inochi2d_wasm_bg.wasm', base));
-    }
-    if (glueModule && typeof glueModule === 'object') {
+      if (glueModule && typeof glueModule === 'object') return glueModule;
+    } else if (glueModule && typeof glueModule === 'object') {
       return glueModule;
     }
-  } catch (e) {
-    // グルーが無い場合は直接 instantiate へ
+  } catch (_e) {
+    // グルー import 失敗 — 直接 instantiate へ
   }
 
-  // (2) 直接 instantiateStreaming
+  // (2) 直接 instantiateStreaming (フォールバック)
   try {
     const resp = await fetch(new URL('./inochi2d_wasm_bg.wasm', base));
     if (!resp.ok) return null;
     const contentType = resp.headers.get('content-type') || '';
     let instance;
     if (contentType.includes('application/wasm')) {
-      instance = await WebAssembly.instantiateStreaming(resp);
+      try {
+        instance = await WebAssembly.instantiateStreaming(resp);
+      } catch (_streamErr) {
+        return null;
+      }
     } else {
       const buf = await resp.arrayBuffer();
-      instance = await WebAssembly.instantiate(buf);
+      try {
+        instance = await WebAssembly.instantiate(buf);
+      } catch (_instErr) {
+        return null;
+      }
     }
     return instance.instance?.exports || null;
-  } catch (e) {
+  } catch (_e) {
     return null;
   }
 }
@@ -104,7 +117,7 @@ export class InochiRuntime {
       console.info('[Inochi2D] WASM backend detected — full features enabled.');
       return new InochiRuntime(wasm);
     }
-    console.warn('[Inochi2D] WASM unavailable — falling back to JS bindings evaluator (basic transforms + deform).');
+    console.info('[Inochi2D] WASM unavailable — falling back to JS bindings evaluator (basic transforms + deform).');
     return new InochiRuntime(null);
   }
 

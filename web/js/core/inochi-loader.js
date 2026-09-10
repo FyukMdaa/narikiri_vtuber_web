@@ -146,6 +146,45 @@ async function parseTrnsInp(arrayBuffer) {
   const jsonStr = new TextDecoder('utf-8').decode(jsonBytes);
   const puppetJson = JSON.parse(jsonStr);
 
+  // v6.2: 実際の JSON 構造をダンプ (問題診断用)
+  //   ※ puppetJson 全体は大きいので、トップレベル keys + nodes の型と最初のエントリだけ出す
+  {
+    const topKeys = Object.keys(puppetJson);
+    const nodesType = Array.isArray(puppetJson.nodes) ? 'array' : (puppetJson.nodes && typeof puppetJson.nodes === 'object' ? 'object' : typeof puppetJson.nodes);
+    console.info(`[Inochi2D] TRNSRTS JSON top-level keys: ${topKeys.join(', ')}`);
+    console.info(`[Inochi2D] TRNSRTS JSON nodes type: ${nodesType}`);
+    if (Array.isArray(puppetJson.nodes)) {
+      console.info(`[Inochi2D] TRNSRTS JSON nodes.length: ${puppetJson.nodes.length}`);
+      if (puppetJson.nodes.length > 0) {
+        const n0 = puppetJson.nodes[0];
+        console.info(`[Inochi2D] TRNSRTS JSON nodes[0] keys: ${n0 && typeof n0 === 'object' ? Object.keys(n0).join(',') : typeof n0}`);
+        if (n0 && typeof n0 === 'object' && n0.children) {
+          console.info(`[Inochi2D] TRNSRTS JSON nodes[0].children[0..2]: ${JSON.stringify(n0.children.slice(0, 3))} (len=${n0.children.length})`);
+        }
+      }
+    } else if (puppetJson.nodes && typeof puppetJson.nodes === 'object') {
+      const nodeKeys = Object.keys(puppetJson.nodes);
+      console.info(`[Inochi2D] TRNSRTS JSON nodes dict size: ${nodeKeys.length}`);
+      console.info(`[Inochi2D] TRNSRTS JSON nodes dict first 5 keys: ${nodeKeys.slice(0, 5).join(', ')}`);
+      const firstKey = nodeKeys[0];
+      if (firstKey != null) {
+        const n0 = puppetJson.nodes[firstKey];
+        const n0Type = Array.isArray(n0) ? 'array' : typeof n0;
+        console.info(`[Inochi2D] TRNSRTS JSON nodes['${firstKey}'] type: ${n0Type}`);
+        if (n0 && typeof n0 === 'object' && !Array.isArray(n0)) {
+          console.info(`[Inochi2D] TRNSRTS JSON nodes['${firstKey}'] keys: ${Object.keys(n0).join(',')}`);
+          if (n0.children) console.info(`[Inochi2D] TRNSRTS JSON nodes['${firstKey}'].children[0..4]: ${JSON.stringify(n0.children.slice ? n0.children.slice(0, 5) : n0.children)}`);
+          if (n0.mesh) console.info(`[Inochi2D] TRNSRTS JSON nodes['${firstKey}'].mesh keys: ${Object.keys(n0.mesh).join(',')}`);
+          if (n0.textures) console.info(`[Inochi2D] TRNSRTS JSON nodes['${firstKey}'].textures: ${JSON.stringify(n0.textures)}`);
+        } else if (Array.isArray(n0)) {
+          console.info(`[Inochi2D] TRNSRTS JSON nodes['${firstKey}'] array length: ${n0.length}`);
+          if (n0.length > 0) console.info(`[Inochi2D] TRNSRTS JSON nodes['${firstKey}'][0] type: ${typeof n0[0]}, keys: ${n0[0] && typeof n0[0] === 'object' ? Object.keys(n0[0]).join(',') : '?'}`);
+        }
+      }
+    }
+    console.info(`[Inochi2D] TRNSRTS JSON root_node: ${puppetJson.root_node}, root_nodes: ${JSON.stringify(puppetJson.root_nodes)}`);
+  }
+
   // 3. TEX_SECT マーカー (公式仕様: ちょうど 8 バイト、\0 終端なし)
   let pos = 12 + jsonLen;
   if (pos + 8 > bytes.length || String.fromCharCode(...bytes.subarray(pos, pos + 8)) !== 'TEX_SECT') {
@@ -187,7 +226,10 @@ async function parseTrnsInp(arrayBuffer) {
     texEntries.push({ encoding, payload });
   }
   if (pos !== bytes.length) {
-    console.warn(`[Inochi2D] TRNSRTS: ${bytes.length - pos} trailing bytes after texture section`);
+    // 新形式 (.inp v0.8+) では TEX_SECT の後に物理演算・エクスポート設定等の
+    // 追加セクションが付くことがある。JS フォールバックでは本文 (JSON) と
+    // テクスチャだけ使うので、これら未パースの後続バイトは警告だけ出して無視。
+    console.debug(`[Inochi2D] TRNSRTS: ${bytes.length - pos} trailing bytes after texture section (likely physics/extra section — ignored by JS fallback)`);
   }
 
   // 6. ペイロードをデコード → ImageBitmap
@@ -220,9 +262,13 @@ async function parseTrnsInp(arrayBuffer) {
         bitmap?.close?.();
         throw new Error(`texture dimensions exceed safety limit: ${width}x${height}`);
       }
+      // テクスチャの UUID / path は puppetJson 側で参照される場合があるので、
+      // 後でパースした JSON から補完する。ここでは index だけ入れておく。
       textures.push({
         name: String(i),    // インデックス参照なので番号を名前にする
         index: i,
+        uuid: null,          // puppetJson 解析後に補完 (textures 配列が UUID を持つ場合)
+        path: null,          // 同上
         bitmap,
         width,
         height,
@@ -230,17 +276,112 @@ async function parseTrnsInp(arrayBuffer) {
       console.info(`[Inochi2D] texture ${i} decoded (${encoding === TEX_ENC.PNG ? 'PNG' : encoding === TEX_ENC.TGA ? 'TGA' : 'BC7'}): ${width}x${height}`);
     } catch (e) {
       console.error(`[Inochi2D] texture ${i} (encoding=${encoding}) decode failed:`, e);
-      textures.push({ name: String(i), index: i, bitmap: null, width: 0, height: 0 });
+      textures.push({ name: String(i), index: i, uuid: null, path: null, bitmap: null, width: 0, height: 0 });
     }
   }
 
   // 7. puppet.json を新しい構造でパース → 描画用ノードツリーを構築
-  if (!Array.isArray(puppetJson.nodes)) throw new Error('Inochi2D TRNSRTS: nodes must be an array');
-  if (puppetJson.nodes.length > LIMITS.nodes) throw new Error(`Inochi2D TRNSRTS: too many root nodes (max ${LIMITS.nodes})`);
-  if (!Array.isArray(puppetJson.param || [])) throw new Error('Inochi2D TRNSRTS: param must be an array');
-  if ((puppetJson.param || []).length > LIMITS.params) throw new Error(`Inochi2D TRNSRTS: too many parameters (max ${LIMITS.params})`);
-  const flatNodes = flattenTrnsNodes(puppetJson.nodes, textures);
+  //   Inochi2D v0.8+ の .inp JSON には 2 つの直列化スタイルがある:
+  //     (A) 旧: nodes が「ノードオブジェクトの配列」で各ノードの children も
+  //            ノードオブジェクト (再帰的に埋め込み)
+  //     (B) 新: nodes が「UUID をキーにしたノード辞書」。各ノードの children は
+  //            「子ノードとして扱うフィールド名のリスト」(D 言語 @serdeChildren
+  //            アノテーション由来。例: ['zsort', 'lockToRoot']) であり、
+  //            実際の親子関係は `parent` フィールドで表現される。
+  //            ルートは root_node (単一 UUID) または root_nodes (UUID 配列)。
+  //            parameters も param ではなく parameters (複数形) の可能性あり。
+  //   どちらでも同じ形に正規化してから下流の flattenTrnsNodes に渡す。
+  const normalized = normalizeTrnsPuppetJson(puppetJson);
+  if (!Array.isArray(normalized.nodes)) {
+    throw new Error('Inochi2D TRNSRTS: nodes must be an array or a UUID-keyed object (got ' +
+      Object.prototype.toString.call(puppetJson.nodes) + ')');
+  }
+  if (normalized.nodes.length > LIMITS.nodes) throw new Error(`Inochi2D TRNSRTS: too many root nodes (max ${LIMITS.nodes})`);
+  // parameters は配列 OR UUID-keyed 辞書を許容
+  let paramList = normalized.param || normalized.parameters || [];
+  if (!Array.isArray(paramList)) {
+    if (paramList && typeof paramList === 'object') paramList = Object.values(paramList);
+    else paramList = [];
+  }
+  if (paramList.length > LIMITS.params) throw new Error(`Inochi2D TRNSRTS: too many parameters (max ${LIMITS.params})`);
+
+  // 7.1 テクスチャ UUID / path を補完
+  //   puppetJson.textures が配列 (JSON で各テクスチャに UUID/path が振られている
+  //   場合) であれば、バイナリからデコード済みの textures にマージする。
+  //   ※ JSON 側の textures エントリ数がバイナリのテクスチャ数と一致することを
+  //      検証し、不一致なら警告して続行 (インデックス参照は壊れない)。
+  const texMeta = Array.isArray(puppetJson.textures) ? puppetJson.textures
+    : (puppetJson.textures && typeof puppetJson.textures === 'object' ? Object.values(puppetJson.textures) : null);
+  if (Array.isArray(texMeta) && texMeta.length > 0) {
+    for (let i = 0; i < Math.min(texMeta.length, textures.length); i++) {
+      const m = texMeta[i];
+      if (!m || typeof m !== 'object') continue;
+      if (m.uuid) textures[i].uuid = String(m.uuid);
+      if (m.path || m.name) {
+        textures[i].path = String(m.path || m.name);
+        // path が分かれば name も上書き (デバッグ視認性向上)
+        if (!textures[i].name || textures[i].name === String(i)) {
+          textures[i].name = String(m.path || m.name);
+        }
+      }
+    }
+    if (texMeta.length !== textures.length) {
+      console.warn(`[Inochi2D] TRNSRTS: puppetJson.textures count (${texMeta.length}) ≠ decoded textures count (${textures.length}) — index-based refs may be off`);
+    }
+  }
+
+  const flatNodes = flattenTrnsNodes(normalized.nodes, textures);
   if (flatNodes.length > LIMITS.nodes) throw new Error(`Inochi2D TRNSRTS: too many nodes (max ${LIMITS.nodes})`);
+
+  // v6.1: 誰も表示されないケースの原因究明用に、構造を軽量ログ出力
+  //   ※ puppetJson 全体は大きすぎるので、キー一覧 + 各ノードの型/キーだけ出す
+  const drawableCount = flatNodes.filter(n => n.mesh && n.mesh.tex).length;
+  const partCount = flatNodes.filter(n => n.type === 'Part').length;
+  console.info(`[Inochi2D] TRNSRTS structure: nodes=${flatNodes.length} partType=${partCount} drawable=${drawableCount}`);
+  if (drawableCount === 0) {
+    // 描画対象が無い → ノード構造をダンプして原因特定に使う
+    console.warn('[Inochi2D] TRNSRTS: 0 drawable nodes — dumping first 3 nodes for diagnosis:');
+    for (const n of flatNodes.slice(0, 3)) {
+      console.warn('  node', n.uuid, 'type=', n.type, 'keys=', Object.keys(n).join(','), 'mesh=', n.mesh ? Object.keys(n.mesh).join(',') : 'null', 'tex=', n.mesh?.tex ? 'yes' : 'no');
+    }
+    // flatten 前の正規化済みノードもダンプ
+    console.warn('[Inochi2D] TRNSRTS: normalized roots dump (first 3):');
+    for (const r of normalized.nodes.slice(0, 3)) {
+      console.warn('  raw', r.uuid, 'type=', r.type, 'keys=', Object.keys(r).join(','));
+      if (r.mesh) console.warn('    mesh keys=', Object.keys(r.mesh).join(','));
+      if (r.deform) console.warn('    deform keys=', Object.keys(r.deform).join(','));
+      if (r.drawable) console.warn('    drawable keys=', Object.keys(r.drawable).join(','));
+    }
+    // v6.3: ルートの子ノード（第1階層）もダンプ。Part 構造を把握するため。
+    if (Array.isArray(normalized.nodes) && normalized.nodes.length > 0) {
+      const root = normalized.nodes[0];
+      if (Array.isArray(root.children) && root.children.length > 0) {
+        console.warn(`[Inochi2D] TRNSRTS: root has ${root.children.length} children. First 3 children:`);
+        for (const c of root.children.slice(0, 3)) {
+          if (!c || typeof c !== 'object') {
+            console.warn('  child (non-object):', typeof c, c);
+            continue;
+          }
+          console.warn('  child', c.uuid, 'type=', c.type, 'name=', c.name, 'keys=', Object.keys(c).join(','));
+          if (c.mesh) console.warn('    mesh keys=', Object.keys(c.mesh).join(','), 'verts?', !!(c.mesh.verts || c.mesh.vertices), 'len=', (c.mesh.verts || c.mesh.vertices || []).length);
+          if (c.deform) console.warn('    deform keys=', Object.keys(c.deform).join(','));
+          if (c.drawable) console.warn('    drawable keys=', Object.keys(c.drawable).join(','));
+          if (c.textures) console.warn('    textures=', JSON.stringify(c.textures).slice(0, 200));
+          if (Array.isArray(c.children) && c.children.length > 0) {
+            console.warn(`    has ${c.children.length} grandchildren. First grandchild:`);
+            const gc = c.children[0];
+            if (gc && typeof gc === 'object') {
+              console.warn('    grandchild', gc.uuid, 'type=', gc.type, 'name=', gc.name, 'keys=', Object.keys(gc).join(','));
+              if (gc.mesh) console.warn('      grandchild.mesh keys=', Object.keys(gc.mesh).join(','), 'verts?', !!(gc.mesh.verts || gc.mesh.vertices), 'len=', (gc.mesh.verts || gc.mesh.vertices || []).length);
+              if (gc.textures) console.warn('      grandchild.textures=', JSON.stringify(gc.textures).slice(0, 200));
+            }
+          }
+        }
+      } else {
+        console.warn('[Inochi2D] TRNSRTS: root has no children (or empty array)');
+      }
+    }
+  }
 
   // 7.5 各ノードの restTransform と deformOffsets を初期化
   //   (computeWorldTransforms が transform を読むので、先に初期化しておく)
@@ -280,7 +421,9 @@ async function parseTrnsInp(arrayBuffer) {
   const bbox = computeBBox(flatNodes);
 
   // 10. パラメータ仕様 + binding 情報
-  const params = (puppetJson.param || []).map(p => ({
+  //   上で正規化済みの paramList (配列形式) を使う。puppetJson.param /
+  //   puppetJson.parameters が両方 undefined なら空配列。
+  const params = paramList.map(p => ({
     name: p.name,
     uuid: p.uuid,
     isVec2: !!p.is_vec2,
@@ -304,6 +447,179 @@ async function parseTrnsInp(arrayBuffer) {
     _values: {},
     _nodeIndexByUuid: uuidIndex,
   };
+}
+
+// ── puppet.json を flattenTrnsNodes が食える形に正規化 ──
+//   Inochi2D v0.8+ の .inp JSON には 3 つの直列化スタイルが存在する:
+//     (A) 旧: nodes = [node, ...], 各 node.children = [node, ...] (埋め込み)
+//     (B) 新: nodes = {単一のルートノード}, node.children = [子node, ...] (埋め込み)
+//            ※ nodes は「ルートノードそのもの」であって dict ではない!
+//            ※ uuid は D 言語の ulong で数値型。
+//     (C) UUID-keyed dict: nodes = {uuid: nodeObj, ...}, parent フィールドで参照
+//            ※ これは一部のエクスポータのみ。公式 Inochi Studio は (B) を出力。
+//   どちらも (A) と同じ形 (nodes が配列) に変換してから下流に渡す。
+function normalizeTrnsPuppetJson(puppetJson) {
+  if (!puppetJson || typeof puppetJson !== 'object') {
+    return { ...puppetJson, nodes: [] };
+  }
+
+  const nodesField = puppetJson.nodes;
+
+  // (A) 旧形式: nodes が配列
+  if (Array.isArray(nodesField)) {
+    // children が UUID 文字列になっているかチェック (混合形式も許容)
+    const needsResolve = nodesField.some(n =>
+      Array.isArray(n?.children) && n.children.length > 0 &&
+      typeof n.children[0] === 'string'
+    );
+    if (!needsResolve) {
+      // 純粋な旧形式 — そのまま返す
+      return puppetJson;
+    }
+    // nodes は配列だが children が UUID 文字列 → dict を構築して parent ベースで解決
+    const nodeDict = {};
+    for (const n of nodesField) {
+      if (n && n.uuid != null) nodeDict[n.uuid] = n;
+    }
+    const resolved = resolveTrnsNodesFromDict(puppetJson, nodeDict);
+    return { ...puppetJson, nodes: resolved };
+  }
+
+  // (B)(C) nodes がオブジェクト
+  if (nodesField && typeof nodesField === 'object') {
+    // (B) 単一ルートノード形式かどうかを判定
+    //   ルートノードは type (string) と children (array) を持つ
+    //   ※ dict の場合は keys が UUID (数値 or 文字列) で、値が node オブジェクト
+    //   ※ 最初の値の type が string なら (B)、そうでなければ (C)
+    if (typeof nodesField.type === 'string' && Array.isArray(nodesField.children)) {
+      // (B) 単一ルートノード → 配列で包むだけ
+      return { ...puppetJson, nodes: [nodesField] };
+    }
+    // (C) UUID-keyed dict
+    const resolved = resolveTrnsNodesFromDict(puppetJson, nodesField);
+    return { ...puppetJson, nodes: resolved };
+  }
+
+  // 未知の形式 — そのまま返し、呼び出し側のバリデーションに委ねる
+  return puppetJson;
+}
+
+// UUID-keyed 辞書からノードツリーを再構築する。
+//   新形式 (B) では `children` は UUID 配列ではなく「子ノードとして扱う
+//   フィールド名のリスト」(@serdeChildren アノテーション由来) なので、
+//   実際の親子関係は `parent` フィールドから再構築する。
+//
+//   戻り値: [nodeObj, ...] (各 nodeObj.children はノードオブジェクト配列)
+function resolveTrnsNodesFromDict(puppetJson, nodeDict) {
+  const allUuids = Object.keys(nodeDict);
+
+  // 1. parent フィールドから親子マップを構築
+  //   ※ 新形式では各ノードが `parent` フィールド (UUID or null) を持つ。
+  //   ※ parent が無い (旧形式) 場合は children フィールドの UUID 配列を使う。
+  //   ※ 両方持つ場合は parent を優先。
+  const childrenOf = new Map();          // parent uuid → [child uuid]
+  const childrenOfChildrenField = new Map(); // children フィールド経由の参照
+  const parentedUuids = new Set();
+  let parentFieldAvailable = false;
+
+  for (const uuid of allUuids) {
+    const node = nodeDict[uuid];
+    const parent = node?.parent;
+    if (parent != null) {
+      parentFieldAvailable = true;
+      if (!childrenOf.has(parent)) childrenOf.set(parent, []);
+      childrenOf.get(parent).push(uuid);
+      parentedUuids.add(uuid);
+    }
+    // children フィールドの文字列を収集 (旧形式互換用)
+    const ch = node?.children;
+    if (Array.isArray(ch)) {
+      for (const c of ch) {
+        if (typeof c === 'string' && nodeDict[c]) {
+          if (!childrenOfChildrenField.has(uuid)) childrenOfChildrenField.set(uuid, []);
+          childrenOfChildrenField.get(uuid).push(c);
+        }
+      }
+    }
+  }
+
+  // parent フィールドが一つも無い → children フィールドから親子マップを構築
+  if (!parentFieldAvailable && childrenOfChildrenField.size > 0) {
+    childrenOf.clear();
+    for (const [p, cs] of childrenOfChildrenField.entries()) {
+      childrenOf.set(p, cs);
+    }
+  }
+
+  // 2. ルート UUID 一覧を決定
+  let rootUuids = [];
+  if (typeof puppetJson.root_node === 'string') {
+    rootUuids = [puppetJson.root_node];
+  } else if (Array.isArray(puppetJson.root_nodes)) {
+    rootUuids = puppetJson.root_nodes.filter(u => typeof u === 'string');
+  } else if (typeof puppetJson.rootNode === 'string') {
+    rootUuids = [puppetJson.rootNode];
+  } else if (Array.isArray(puppetJson.rootNodes)) {
+    rootUuids = puppetJson.rootNodes.filter(u => typeof u === 'string');
+  } else {
+    // ルート指定が無い場合
+    if (parentFieldAvailable) {
+      // parent フィールドがある → parent が無いノードをルートとする
+      rootUuids = allUuids.filter(u => !parentedUuids.has(u));
+    } else {
+      // parent フィールドが無い → children フィールドの子として現れない UUID をルートとする
+      const childSet = new Set();
+      for (const uuids of childrenOfChildrenField.values()) {
+        for (const u of uuids) childSet.add(u);
+      }
+      rootUuids = allUuids.filter(u => !childSet.has(u));
+    }
+
+    if (rootUuids.length === 0 && allUuids.length > 0) {
+      // 全ノードが parent を持つ (循環等) — 最初の UUID をルートにする
+      rootUuids = [allUuids[0]];
+    }
+  }
+
+  // 3. parent から子ツリーを再構築 (path セットで循環検出)
+  const buildNode = (uuid, path) => {
+    if (path.has(uuid)) {
+      console.warn(`[Inochi2D] TRNSRTS: cycle detected at node ${uuid} — skipping subtree`);
+      return null;
+    }
+    const node = nodeDict[uuid];
+    if (!node || typeof node !== 'object' || Array.isArray(node)) {
+      // ノードが null か非オブジェクト (配列含む) の場合はスキップ
+      if (node != null) {
+        console.warn(`[Inochi2D] TRNSRTS: node ${uuid} is not an object (got ${Array.isArray(node) ? 'array' : typeof node}) — skipping`);
+      } else {
+        console.warn(`[Inochi2D] TRNSRTS: node ${uuid} referenced but not found in nodes dict — skipping`);
+      }
+      return null;
+    }
+    const nextPath = new Set(path);
+    nextPath.add(uuid);
+
+    // shallow clone して children を解決済みノード配列で上書き
+    //   ※ 新形式では uuid が dict のキーで、ノードエントリに uuid フィールドが
+    //      無い可能性がある。dict キーから uuid を注入する。
+    const clone = { ...node };
+    if (clone.uuid == null) clone.uuid = uuid;
+    const childUuids = childrenOf.get(uuid) || [];
+    clone.children = childUuids
+      .map(c => buildNode(c, nextPath))
+      .filter(c => c != null);
+    return clone;
+  };
+
+  const roots = rootUuids
+    .map(uuid => buildNode(uuid, new Set()))
+    .filter(n => n != null);
+
+  if (roots.length === 0) {
+    console.warn('[Inochi2D] TRNSRTS: no root nodes resolved — puppet will render nothing');
+  }
+  return roots;
 }
 
 // ── 描画順リストの構築 (公式 Puppet.draw() セマンティクス準拠 / v0.8.7) ──
@@ -564,22 +880,50 @@ function flattenTrnsNodes(node, textures, out = [], parent = null, depth = 0) {
   }
 
   // Part ノードは mesh + textures を持つ
-  if (node.type === 'Part' || node.mesh) {
-    const mesh = node.mesh || {};
-    const texIndices = node.textures || [];
+  //   新形式 (v0.8+) では mesh が node.deform.mesh や node.drawable.mesh に
+  //   ネストしている可能性がある。複数候補を順に探す。
+  //   ※ node.type === 'Part' のノードでも、何も描画しない純粋な Part (例: 親
+  //      Composite の zSort 制御用の empty Part) は mesh を持たない。
+  //   ※ 'Node' / 'Composite' / 'SimplePhysics' / 'Deformer' / 'Physics' 等
+  //      Part 以外の型でも mesh を持つものがあれば描画対象に含める。
+  const meshRaw = node.mesh || node.deform?.mesh || node.drawable?.mesh || null;
+  const texIndices = node.textures || node.tex || node.drawable?.textures || node.deform?.textures || [];
+
+  // Part 型 または mesh もしくは textures を持つノードを描画対象とする
+  if (node.type === 'Part' || meshRaw || (Array.isArray(texIndices) && texIndices.length > 0)) {
+    const mesh = meshRaw || {};
     // テクスチャインデックスから bitmap を解決
     //   4294967295 (0xFFFFFFFF) = -1 = no texture
+    //   ※ 新形式では textures が数値配列ではなくオブジェクト配列 (テクスチャ
+    //      UUID や path を含む) の可能性もある。数値でも文字列でも解決できる
+    //      ように両対応する。
     let primaryTex = null;
     for (const idx of texIndices) {
       if (idx === 4294967295 || idx === -1) continue;
-      const tex = textures.find(t => t.index === idx);
+      let tex = null;
+      if (typeof idx === 'number') {
+        tex = textures.find(t => t.index === idx);
+      } else if (typeof idx === 'string') {
+        // UUID または path で解決
+        tex = textures.find(t => t.uuid === idx || t.name === idx || t.path === idx);
+      } else if (idx && typeof idx === 'object') {
+        // { uuid, path, ... } 形式
+        const uuid = idx.uuid;
+        const path = idx.path || idx.tex;
+        tex = textures.find(t => t.uuid === uuid || t.name === path || t.path === path);
+      }
       if (tex && tex.bitmap) { primaryTex = tex; break; }
     }
 
+    // 頂点配列 (verts) は mesh.verts または mesh.vertices のどちらか
+    const vertsSrc = mesh.verts || mesh.vertices || [];
+    const uvsSrc = mesh.uvs || mesh.uv || mesh.texcoords || [];
+    const indicesSrc = mesh.indices || mesh.triangles || [];
+
     flat.mesh = {
-      vertices: new Float32Array(mesh.verts || []),
-      uvs: new Float32Array(mesh.uvs || []),
-      indices: new Uint16Array(mesh.indices || []),
+      vertices: new Float32Array(vertsSrc),
+      uvs: new Float32Array(uvsSrc),
+      indices: new Uint16Array(indicesSrc),
       tex: primaryTex,
       texPath: primaryTex ? primaryTex.name : null,
       uvTransform: [1, 1, 0, 0],
@@ -587,8 +931,19 @@ function flattenTrnsNodes(node, textures, out = [], parent = null, depth = 0) {
     };
     flat.tint = node.tint || [1, 1, 1];
     flat.screenTint = node.screenTint || [0, 0, 0];
-    flat.blendMode = node.blend_mode || 'Normal';
+    flat.blendMode = node.blend_mode || node.blendMode || 'Normal';
     flat.opacity = node.opacity ?? 1.0;
+    if (typeof node.mask_threshold === 'number') {
+      flat.maskThreshold = Math.max(0, Math.min(1, node.mask_threshold));
+    }
+    if (Array.isArray(node.masks)) {
+      flat.masks = node.masks
+        .map(m => ({
+          source: m.source ?? m.mask_src ?? m.maskSrcUUID ?? m.maskSrc?.uuid,
+          dodge: (m.mode === 'DodgeMask'),
+        }))
+        .filter(m => m.source != null);
+    }
   }
 
   out.push(flat);
