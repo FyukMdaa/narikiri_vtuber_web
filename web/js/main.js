@@ -13,7 +13,7 @@ import { initScene, resizeThree } from 'app/core/scene.js';
 import { animate } from 'app/core/animation-loop.js';
 import { initToolbar } from 'app/ui/toolbar.js';
 import { initBrightness } from 'app/ui/brightness.js';
-import { initZoomToggle, initTwistToggle } from 'app/ui/toggles.js';
+import { initZoomToggle, initHideCameraToggle } from 'app/ui/toggles.js';
 import { initVrmInput } from 'app/ui/vrm-input.js';
 import { initInpInput } from 'app/ui/inochi-input.js';
 import { initInochiCanvas, resizeInochi } from 'app/core/inochi-canvas.js';
@@ -36,8 +36,8 @@ function collectDomRefs() {
   ui.brightnessVal    = document.getElementById('brightness-val');
   ui.optZoom         = document.getElementById('opt-zoom');
   ui.zoomLabel       = document.getElementById('zoom-label');
-  ui.optTwist        = document.getElementById('opt-twist');
-  ui.twistLabel      = document.getElementById('twist-label');
+  ui.optHideCamera   = document.getElementById('opt-hide-camera');
+  ui.hideCameraLabel = document.getElementById('hide-camera-label');
   ui.video           = document.getElementById('camera-video');
   ui.overlay         = document.getElementById('overlay-canvas');
   ui.overlayCtx      = ui.overlay.getContext('2d');
@@ -70,7 +70,7 @@ async function boot() {
   initToolbar();        // カメラ/オーバーレイボタン
   initBrightness();     // 明るさスライダ
   initZoomToggle();     // 顔追従ズーム
-  initTwistToggle();    // ひねり反映
+  initHideCameraToggle(); // カメラ映像の非表示（骨組みのみ）
   initVrmInput();       // VRM 読込ダイアログ
   initInpInput();       // .inp 読込ダイアログ
 

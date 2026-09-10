@@ -12,9 +12,12 @@
   --text-primary: #f3f4f6;     /* メインテキスト */
   --text-secondary: #9ca3af;   /* サブテキスト */
   --text-muted: #6b7280;       /* 希薄なテキスト */
-  --font-display: 'Inter', 'Zen Kaku Gothic New', sans-serif;
-  --font-body: 'Inter', 'Zen Kaku Gothic New', 'Noto Sans JP', sans-serif;
-  --font-mono: 'Inter', sans-serif;
+  /* Google Fonts CDN 依存を廃止し、OS同梱フォントのみで構成
+     （Inter/Zen Kaku Gothic New/Noto Sans JP は環境にインストール済みなら
+     自動的に使われるが、必須ではない）*/
+  --font-display: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Hiragino Kaku Gothic ProN', 'Yu Gothic', 'Meiryo', sans-serif;
+  --font-body: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Hiragino Kaku Gothic ProN', 'Yu Gothic', 'Meiryo', sans-serif;
+  --font-mono: ui-monospace, 'SFMono-Regular', Consolas, 'Inter', monospace;
 }
 
 * { box-sizing: border-box; }
@@ -105,6 +108,17 @@ html, body {
   background: var(--bg-panel);
 }
 .tool-btn:disabled:hover {
+  background: var(--bg-panel);
+  border-color: transparent;
+}
+
+/* 常時ONの静的表示（ひねり反映など、操作不能なインジケータ用） */
+.tool-btn-static {
+  cursor: default;
+  color: var(--text-secondary);
+  background: var(--bg-panel);
+}
+.tool-btn-static:hover {
   background: var(--bg-panel);
   border-color: transparent;
 }
@@ -206,6 +220,16 @@ input[type="file"] { display: none; }
   width: 100%;
   height: 100%;
   transform: scaleX(-1);
+}
+
+/* カメラ映像の非表示（骨組みのみ表示）モード
+   #camera-video を隠しても getUserMedia のストリーム自体・
+   トラッキング処理は継続する（見た目だけを変える）。 */
+#pane-camera.hide-video #camera-video {
+  visibility: hidden;
+}
+#pane-camera.hide-video #camera-wrap {
+  background: #0a0a0c;
 }
 
 .pane-empty-hint {

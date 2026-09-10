@@ -155,6 +155,6 @@ export const MEDIAPIPE_ASSETS = {
 // localStorage に保存する設定のキー名
 export const STORAGE_KEYS = {
   zoomEnabled: 'vtuber_zoom_enabled',
-  twistEnabled: 'vtuber_twist_enabled',
+  hideCameraVideo: 'vtuber_hide_camera_video',
   brightness: 'vtuber_brightness',
 };

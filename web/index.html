@@ -4,17 +4,14 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Vtuberなりきりソフト</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Zen+Kaku+Gothic+New:wght@400;500;700&family=Noto+Sans+JP:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="./css/style.css">
 
 <script type="importmap">
 {
   "imports": {
-    "three": "https://esm.sh/three@0.166.1",
-    "three/addons/": "https://esm.sh/three@0.166.1/examples/jsm/",
-    "@pixiv/three-vrm": "https://esm.sh/@pixiv/three-vrm@3.1.5?deps=three@0.166.1",
+    "three": "./js/vendor/three/build/three.module.js",
+    "three/addons/": "./js/vendor/three/examples/jsm/",
+    "@pixiv/three-vrm": "./js/vendor/three-vrm/three-vrm.module.js",
     "@mediapipe/tasks-vision": "./js/vendor/mediapipe/vision_bundle.mjs",
     "app/": "./js/"
   }
@@ -49,9 +46,11 @@
       <span>顔追従ズーム</span>
     </label>
 
-    <label class="tool-btn" id="twist-label" title="肩・手首のひねり（捻り）をアバターに反映します">
-      <input type="checkbox" id="opt-twist" checked>
-      <span>ひねり反映</span>
+    <div class="divider-v"></div>
+
+    <label class="tool-btn" id="hide-camera-label" title="カメラ映像を隠し、骨組み（トラッキング状況）だけを表示します">
+      <input type="checkbox" id="opt-hide-camera">
+      <span>映像を隠す（骨組みのみ）</span>
     </label>
 
     <div class="divider-v"></div>

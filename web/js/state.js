@@ -35,8 +35,19 @@ export const zoomState = {
 };
 
 // ひねり反映設定
+//   常時ON固定（UIのトグルは廃止）。twistState.enabled は
+//   apply.js / apply-inochi.js から参照されるため互換のため残す。
 export const twistState = {
   enabled: true,
+};
+
+// カメラ映像の表示設定
+//   ON にすると <video> 本体を非表示にし、骨組み（オーバーレイ）のみを
+//   表示する。自分の顔を見たくない人向けのプライバシーモード。
+//   このモード中はトラッキング自体は継続し、骨組み描画も自動的に
+//   有効化される。
+export const cameraDisplayState = {
+  hideVideo: false,
 };
 
 // MediaPipe 検出結果（每フレーム更新）
@@ -72,8 +83,8 @@ export const ui = {
   brightnessVal: null,
   optZoom: null,
   zoomLabel: null,
-  optTwist: null,
-  twistLabel: null,
+  optHideCamera: null,
+  hideCameraLabel: null,
   video: null,
   overlay: null,
   overlayCtx: null,

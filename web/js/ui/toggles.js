@@ -1,13 +1,11 @@
 // ──────────────────────────────────────────────────────────────
-// toggles.js - 顔追従ズーム / ひねり反映 トグル
+// toggles.js - 顔追従ズーム / カメラ映像の非表示 トグル
 //   設定値は localStorage へ永続化。
+//   ※「ひねり反映」は常時ONとなったため、ここのトグルは廃止済み
+//     （twistState.enabled は state.js 側で true 固定）。
 // ──────────────────────────────────────────────────────────────
-import { ui, zoomState, twistState } from 'app/state.js';
+import { ui, zoomState, cameraDisplayState } from 'app/state.js';
 import { STORAGE_KEYS } from 'app/config.js';
-import {
-  _smoothedUpperTwist,
-  _smoothedWristSinCos,
-} from 'app/utils/temp-objects.js';
 
 // ── 顔追従ズーム ──
 export function initZoomToggle() {
@@ -36,35 +34,29 @@ function updateZoomUI() {
   else ui.zoomLabel.classList.remove('active');
 }
 
-// ── ひねり反映 ──
-export function initTwistToggle() {
-  const savedPref = localStorage.getItem(STORAGE_KEYS.twistEnabled);
-  if (savedPref === '0') {
-    twistState.enabled = false;
-    ui.optTwist.checked = false;
-  } else {
-    twistState.enabled = true;
-    ui.optTwist.checked = true;
-  }
-  updateTwistUI();
+// ── カメラ映像の非表示（骨組みのみ表示）──
+//   自分の顔・姿をあまり見たくない人向けのプライバシーモード。
+//   ONの間は <video> を非表示にし、代わりに骨組み（オーバーレイ）の
+//   描画を強制的に有効化する（detection-loop.js 側で判定）。
+export function initHideCameraToggle() {
+  const savedPref = localStorage.getItem(STORAGE_KEYS.hideCameraVideo);
+  cameraDisplayState.hideVideo = savedPref === '1';
+  ui.optHideCamera.checked = cameraDisplayState.hideVideo;
+  updateHideCameraUI();
 
-  ui.optTwist.addEventListener('change', (e) => {
-    twistState.enabled = e.target.checked;
-    localStorage.setItem(STORAGE_KEYS.twistEnabled, twistState.enabled ? '1' : '0');
-    updateTwistUI();
-    if (!twistState.enabled) {
-      // ひねりOFF時は即座に smoothing 状態をリセット
-      _smoothedUpperTwist.left = 0;
-      _smoothedUpperTwist.right = 0;
-      _smoothedWristSinCos.left.sin = 0;
-      _smoothedWristSinCos.left.cos = 1;
-      _smoothedWristSinCos.right.sin = 0;
-      _smoothedWristSinCos.right.cos = 1;
-    }
+  ui.optHideCamera.addEventListener('change', (e) => {
+    cameraDisplayState.hideVideo = e.target.checked;
+    localStorage.setItem(STORAGE_KEYS.hideCameraVideo, cameraDisplayState.hideVideo ? '1' : '0');
+    updateHideCameraUI();
   });
 }
 
-function updateTwistUI() {
-  if (twistState.enabled) ui.twistLabel.classList.add('active');
-  else ui.twistLabel.classList.remove('active');
+function updateHideCameraUI() {
+  if (cameraDisplayState.hideVideo) {
+    ui.hideCameraLabel.classList.add('active');
+    ui.paneCamera.classList.add('hide-video');
+  } else {
+    ui.hideCameraLabel.classList.remove('active');
+    ui.paneCamera.classList.remove('hide-video');
+  }
 }

@@ -7,13 +7,16 @@
   "scripts": {
     "dev": "node scripts/dev-server.mjs",
     "fetch:mediapipe": "node scripts/fetch-mediapipe-assets.mjs",
+    "fetch:three": "node scripts/fetch-three-assets.mjs",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
-    "postinstall": "node scripts/fetch-mediapipe-assets.mjs || true"
+    "postinstall": "node scripts/fetch-three-assets.mjs; node scripts/fetch-mediapipe-assets.mjs || true"
   },
   "devDependencies": {
     "@mediapipe/tasks-vision": "0.10.14",
-    "@tauri-apps/cli": "^2.1.0"
+    "@pixiv/three-vrm": "3.1.5",
+    "@tauri-apps/cli": "^2.1.0",
+    "three": "0.166.1"
   }
 }

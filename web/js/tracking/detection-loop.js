@@ -8,7 +8,7 @@
 //   ※modeState.current が 'inochi' のときは applyLandmarksToVrm の
 //    代わりに applyLandmarksToInochi を呼ぶ（VRM とは排他）
 // ──────────────────────────────────────────────────────────────
-import { cameraState, ui, latestLandmarks, zoomState, sceneState, modeState, inochiState } from 'app/state.js';
+import { cameraState, ui, latestLandmarks, zoomState, sceneState, modeState, inochiState, cameraDisplayState } from 'app/state.js';
 
 import { renderOverlay } from 'app/camera/overlay.js';
 import { applyLandmarksToVrm } from 'app/tracking/apply.js';
@@ -94,8 +94,11 @@ function applyResult(result) {
     }
   }
 
-  // ── オーバーレイ描画（ボタンが active のときのみ）──
-  if (ui.btnOverlay.classList.contains('active')) {
+  // ── オーバーレイ描画 ──
+  //   通常は「骨組み表示」ボタンが active のときのみ描画するが、
+  //   カメラ映像の非表示（骨組みのみ表示）モード中は、映像が
+  //   見えなくなる代わりとして常に骨組みを描画する。
+  if (ui.btnOverlay.classList.contains('active') || cameraDisplayState.hideVideo) {
     renderOverlay();
   } else {
     ui.overlayCtx.clearRect(0, 0, ui.overlay.width, ui.overlay.height);
