@@ -7,14 +7,16 @@
 //   - ダウンロード / 撮り直す / QR 開始・停止
 // ──────────────────────────────────────────────────────────────
 import { ui, cameraDisplayState } from 'app/state.js';
-import { takePhoto, canvasToPngBlob, listAvailableLayouts, pickDefaultLayoutId } from 'app/photo/photo.js';
+import { takePhoto, canvasToTransferBlob, canvasToDownloadBlob, listAvailableLayouts, pickDefaultLayoutId } from 'app/photo/photo.js';
 import { getLayoutById } from 'app/photo/photo-layouts.js';
 import { startQrTransfer, stopQrTransfer, pauseQrTransfer, resumeQrTransfer } from 'app/photo/photo-qr.js';
 import { isCameraActive } from 'app/photo/photo-capture.js';
+import { PHOTO_QR_FRAME_INTERVAL_MS, PHOTO_QR_PRESET } from 'app/env.js';
 
 // ── 状態 ──
-let currentPhoto = null;        // { canvas, layoutId, layoutLabel, capturedAt, fileName }
-let currentBlob = null;
+let currentPhoto = null;        // { canvas, transferFileName, downloadFileName, layoutId, layoutLabel, capturedAt }
+let currentBlob = null;         // QR 転送用 Blob（JPEG圧縮済み・縮小済み）
+let currentDownloadBlob = null; // ダウンロード用 Blob（高品質JPEG）
 let currentObjectUrl = null;
 let layoutSelectUpdaterBound = false;
 
@@ -148,29 +150,41 @@ async function captureAndShow() {
 
   currentPhoto = photo;
 
-  // PNG Blob に変換
-  let blob;
+  // QR 転送用 Blob（縮小＋中品質JPEG）
+  let transferBlob;
+  // ダウンロード用 Blob（元サイズ＋高品質JPEG）
+  let downloadBlob;
   try {
-    blob = await canvasToPngBlob(photo.canvas);
+    [transferBlob, downloadBlob] = await Promise.all([
+      canvasToTransferBlob(photo.canvas),
+      canvasToDownloadBlob(photo.canvas),
+    ]);
   } catch (err) {
     console.error('[photo] blob conversion failed:', err);
     showStatusMessage('画像の変換に失敗しました');
     return;
   }
-  currentBlob = blob;
+  currentBlob = transferBlob;
+  currentDownloadBlob = downloadBlob;
 
   // 既存の Object URL を破棄
   if (currentObjectUrl) {
     URL.revokeObjectURL(currentObjectUrl);
   }
-  currentObjectUrl = URL.createObjectURL(blob);
+  // モーダルには転送用を表示（ダウンロードは別URL）
+  currentObjectUrl = URL.createObjectURL(transferBlob);
+
+  // QR 転送の見積もり時間
+  const estimate = estimateTransferTime(transferBlob.size);
 
   // モーダルへ表示
   dom.modalImg.src = currentObjectUrl;
   dom.photoMeta.innerHTML = `
     <div>レイアウト: ${escapeHtml(photo.layoutLabel)}</div>
     <div>撮影日時: ${escapeHtml(formatDateTime(photo.capturedAt))}</div>
-    <div>ファイル: ${escapeHtml(photo.fileName)} (${formatBytes(blob.size)})</div>
+    <div>送信サイズ: ${escapeHtml(photo.transferFileName)} (${formatBytes(transferBlob.size)})</div>
+    <div>送信見積もり: 約 ${estimate.loops}ループ / ${estimate.timeSec}秒 (${PHOTO_QR_PRESET}, ${PHOTO_QR_FRAME_INTERVAL_MS}ms間隔)</div>
+    <div>ダウンロード: ${escapeHtml(photo.downloadFileName)} (${formatBytes(downloadBlob.size)})</div>
   `;
 
   // QR ステータスをリセット
@@ -187,9 +201,9 @@ async function captureAndShow() {
   // QR 転送を自動開始
   try {
     dom.qrStatus.textContent = 'QR を生成中…';
-    await startQrTransfer(dom.qrStageMount, blob, photo.fileName, {
+    await startQrTransfer(dom.qrStageMount, transferBlob, photo.transferFileName, {
       onPrepared: (summary) => {
-        dom.qrStatus.textContent = `送信準備完了 — 全 ${summary.totalChunks} チャンク / ${summary.totalFrames} フレーム`;
+        dom.qrStatus.textContent = `送信中 — ${summary.totalChunks}チャンク / ${summary.totalFrames}フレーム (1ループ約${(summary.estimatedStats.loopDurationMs / 1000).toFixed(1)}秒)`;
       },
     });
     dom.qrStatus.textContent = '送信中 — 受信側のカメラで読み取ってください';
@@ -217,11 +231,11 @@ async function closeModal() {
 
 // ── ダウンロード ──
 function downloadCurrent() {
-  if (!currentBlob || !currentPhoto) return;
-  const url = URL.createObjectURL(currentBlob);
+  if (!currentDownloadBlob || !currentPhoto) return;
+  const url = URL.createObjectURL(currentDownloadBlob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = currentPhoto.fileName;
+  a.download = currentPhoto.downloadFileName;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
@@ -241,7 +255,7 @@ async function onQrStart() {
   if (!currentBlob || !currentPhoto) return;
   try {
     dom.qrStatus.textContent = '送信再開中…';
-    await startQrTransfer(dom.qrStageMount, currentBlob, currentPhoto.fileName);
+    await startQrTransfer(dom.qrStageMount, currentBlob, currentPhoto.transferFileName);
     dom.qrStatus.textContent = '送信中 — 受信側のカメラで読み取ってください';
   } catch (err) {
     dom.qrStatus.textContent = '再開に失敗: ' + (err.message || err);
@@ -294,4 +308,35 @@ function formatBytes(n) {
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
   return `${(n / 1024 / 1024).toFixed(2)} MB`;
+}
+
+// ── ユーティリティ: 転送時間見積もり ──
+//   ファイルサイズから chunk 数と1ループあたりの秒数を概算する。
+//   実際の受信完了時間は受信側のカメラfpsに依存するため目安。
+function estimateTransferTime(fileSize) {
+  // プリセット別の chunkByteSize / symbolsPerFrame / parityBlockDataChunks を反映
+  const PRESETS = {
+    compatibility: { chunk: 220, symbols: 1, parity: 4 },
+    balanced:       { chunk: 384, symbols: 2, parity: 6 },
+    throughput:     { chunk: 512, symbols: 4, parity: 0 },
+    resilient:      { chunk: 220, symbols: 2, parity: 4 },
+  };
+  const p = PRESETS[PHOTO_QR_PRESET] || PRESETS.balanced;
+  const intervalMs = PHOTO_QR_FRAME_INTERVAL_MS ?? 80;
+
+  const totalChunks = Math.max(1, Math.ceil(fileSize / p.chunk));
+  // parity ブロックは parityBlockDataChunks チャンクごとに1つ追加
+  const parityChunks = p.parity > 0 ? Math.ceil(totalChunks / p.parity) : 0;
+  const totalSymbols = totalChunks + parityChunks + 1; // +1 for manifest
+  const totalFrames = Math.ceil(totalSymbols / p.symbols);
+  const loopMs = totalFrames * intervalMs;
+  const loopSec = loopMs / 1000;
+
+  // 実受信側は 1〜2 ループで完了することが多い。余裕を見て 1.5 倍で見積もり。
+  return {
+    loops: 1,
+    timeSec: loopSec.toFixed(1),
+    totalFrames,
+    totalChunks,
+  };
 }
