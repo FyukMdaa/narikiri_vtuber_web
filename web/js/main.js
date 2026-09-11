@@ -18,6 +18,7 @@ import { initVrmInput } from 'app/ui/vrm-input.js';
 import { initInpInput } from 'app/ui/inochi-input.js';
 import { initInochiCanvas, resizeInochi } from 'app/core/inochi-canvas.js';
 import { resizeOverlay } from 'app/camera/overlay.js';
+import { initPhoto, onCameraDisplayChanged } from 'app/photo/photo-ui.js';
 
 // ── DOM参照を収集 ──
 function collectDomRefs() {
@@ -73,6 +74,7 @@ async function boot() {
   initHideCameraToggle(); // カメラ映像の非表示（骨組みのみ）
   initVrmInput();       // VRM 読込ダイアログ
   initInpInput();       // .inp 読込ダイアログ
+  initPhoto();          // フォト機能（撮影ボタン / モーダル / QR送信）
 
   // FPS 計測用のタイムスタンプ初期化
   fpsState.lastFrameTime = performance.now();

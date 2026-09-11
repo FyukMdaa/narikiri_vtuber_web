@@ -1,8 +1,9 @@
 // ──────────────────────────────────────────────────────────────
 // detection-loop.js - MediaPipe 検出ループ
-//   face / pose / hand を約30Hzで検出し、オーバーレイ描画と
-//   VRM / Inochi2D 適用を行う。MediaPipe の検出自体はメインスレッドで
-//   実行する（Tasks Vision bundle が Module Worker 内の importScripts() と
+//   face / pose / hand をラウンドロビンで検出し（1 tick = 1種類、
+//   各検出器は最大約20Hzで更新）、オーバーレイ描画と VRM / Inochi2D
+//   適用を行う。MediaPipe の検出自体はメインスレッドで実行する
+//   （Tasks Vision bundle が Module Worker 内の importScripts() と
 //   非互換なため）。描画の rAF とは検出間隔を分離する。
 //
 //   ※modeState.current が 'inochi' のときは applyLandmarksToVrm の
@@ -15,10 +16,29 @@ import { applyLandmarksToVrm } from 'app/tracking/apply.js';
 import { applyLandmarksToInochi } from 'app/tracking/apply-inochi.js';
 import { shoulderWidthToZoom, getShoulderWidth } from 'app/core/animation-loop.js';
 import { setDetectionActive } from 'app/core/inochi-canvas.js';
-import { detectFrame } from 'app/camera/trackers.js';
+import { detectPart } from 'app/camera/trackers.js';
 
-const DETECTION_INTERVAL_MS = 1000 / 30;
+// tick 自体は rAF ペースでゆるく制限するだけにし（高リフレッシュレート
+// 環境での過剰実行を防ぐ程度）、face/pose/hand は下の PARTS を
+// ラウンドロビンして1 tick につき1種類だけ検出する。
+// 3モデルを同一 tick で同期実行すると1回のブロックが長くなり、
+// 同じメインスレッドで動く描画側 rAF（animate()）まで巻き込んで
+// コマ落ちする（トラッキング・アバター双方の「カクつき」の主因）。
+const DETECTION_INTERVAL_MS = 1000 / 60;
 let lastDetectionMs = 0;
+
+const PARTS = ['face', 'pose', 'hand'];
+let partIndex = 0;
+
+// 各検出器の最新結果を保持するキャッシュ。ラウンドロビンで更新されない
+// フィールドを毎tick nullで潰してしまわないよう、ここで合成する。
+const resultCache = {
+  face: null,
+  pose: null,
+  hands: [],
+  faceBlendshapes: null,
+  headMatrix: null,
+};
 
 // Worker への detect リクエストが往復している間は次のフレームを
 // 投げない（キュー溜まり・遅延蓄積を防ぐためのバックプレッシャー制御）。
@@ -61,11 +81,17 @@ async function tick() {
   // Inochi2D モード時は detection-loop 側で apply を呼ぶことを通知
   if (modeState.current === 'inochi') setDetectionActive(true);
 
+  const part = PARTS[partIndex];
+  partIndex = (partIndex + 1) % PARTS.length;
+
   try {
     // MediaPipe Tasks Vision は HTMLVideoElement を直接受け取れる。
     // ImageBitmap 化や Worker 転送は行わない。
-    const result = await detectFrame(ui.video, nowMs);
-    applyResult(result);
+    // face/pose/hand のうち1種類だけを検出し、キャッシュへマージする
+    // （他の2種類は前回検出時の値を保持したまま）。
+    const partial = detectPart(part, ui.video, nowMs);
+    Object.assign(resultCache, partial);
+    applyResult(resultCache);
   } catch (err) {
     console.warn('[Tracking] detection failed; loop will recover:', err);
   } finally {

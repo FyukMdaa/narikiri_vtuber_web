@@ -6,6 +6,7 @@
 // ──────────────────────────────────────────────────────────────
 import { ui, zoomState, cameraDisplayState } from 'app/state.js';
 import { STORAGE_KEYS } from 'app/config.js';
+import { onCameraDisplayChanged } from 'app/photo/photo-ui.js';
 
 // ── 顔追従ズーム ──
 export function initZoomToggle() {
@@ -58,5 +59,11 @@ function updateHideCameraUI() {
   } else {
     ui.hideCameraLabel.classList.remove('active');
     ui.paneCamera.classList.remove('hide-video');
+  }
+  // フォトレイアウト選択肢を更新（カメラOFF時はカメラ必須レイアウトを隠す）
+  try {
+    onCameraDisplayChanged();
+  } catch (e) {
+    // photo-ui 未初期化時は無視
   }
 }

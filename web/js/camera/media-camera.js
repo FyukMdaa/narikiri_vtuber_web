@@ -5,6 +5,7 @@ import { cameraState, ui } from 'app/state.js';
 import { initTrackers, closeTrackers } from 'app/camera/trackers.js';
 import { runDetectionLoop, stopDetectionLoop } from 'app/tracking/detection-loop.js';
 import { setDetectionActive } from 'app/core/inochi-canvas.js';
+import { onCameraDisplayChanged } from 'app/photo/photo-ui.js';
 
 // カメラ起動 → トラッカー初期化 → 検出ループ開始
 export async function startCamera() {
@@ -27,6 +28,8 @@ export async function startCamera() {
     ui.btnOverlay.disabled = false;
     ui.statusTag.innerHTML = '<span class="live">●</span> トラッキング中';
     runDetectionLoop();
+    // フォトレイアウト選択肢を更新（カメラ有効化により選択可能になったものを反映）
+    try { onCameraDisplayChanged(); } catch (e) {}
   } catch (err) {
     console.error(err);
     // カメラ取得後にトラッカー初期化が失敗しても、ストリームと
@@ -72,4 +75,6 @@ export function stopCamera() {
   ui.paneCamera.classList.remove('tracking');
   ui.overlayCtx.clearRect(0, 0, ui.overlay.width, ui.overlay.height);
   ui.statusTag.textContent = 'READY';
+  // フォトレイアウト選択肢を更新（カメラ無効化により使えなくなったレイアウトを隠す）
+  try { onCameraDisplayChanged(); } catch (e) {}
 }

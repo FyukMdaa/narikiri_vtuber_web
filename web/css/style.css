@@ -283,3 +283,190 @@ input[type="file"] { display: none; }
   border-radius: 4px;
   pointer-events: none;
 }
+
+/* ── フォトボタン / レイアウト選択 ── */
+.photo-btn {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.photo-btn:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+.photo-layout-select {
+  appearance: none;
+  -webkit-appearance: none;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--text-secondary) 50%),
+    linear-gradient(135deg, var(--text-secondary) 50%, transparent 50%);
+  background-position:
+    calc(100% - 18px) calc(50% - 1px),
+    calc(100% - 13px) calc(50% - 1px);
+  background-size: 5px 5px;
+  background-repeat: no-repeat;
+  padding-right: 32px;
+  cursor: pointer;
+  font-size: 12px;
+}
+.photo-layout-select:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ── フォトモーダル ── */
+.photo-modal {
+  width: min(96vw, 1280px);
+  max-height: 92vh;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  overflow: hidden;
+}
+.photo-modal::backdrop {
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(6px);
+}
+
+.photo-modal-body {
+  background: var(--bg-panel);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  display: flex;
+  flex-direction: column;
+  max-height: 92vh;
+  overflow: hidden;
+}
+
+.photo-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 24px;
+  border-bottom: 1px solid var(--line);
+}
+.photo-modal-header .kicker {
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--accent);
+  font-weight: 600;
+}
+.photo-modal-title {
+  margin: 4px 0 0;
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 700;
+}
+.photo-modal-close {
+  background: transparent;
+  border: 1px solid var(--line);
+  color: var(--text-secondary);
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+  transition: background 0.2s, color 0.2s;
+}
+.photo-modal-close:hover {
+  background: var(--bg-panel-raised);
+  color: var(--text-primary);
+}
+
+.photo-modal-content {
+  display: grid;
+  grid-template-columns: 1.1fr 1fr;
+  gap: 20px;
+  padding: 20px 24px 24px;
+  overflow: auto;
+}
+
+.photo-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+}
+.photo-pane-label {
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+.photo-pane-frame {
+  background: var(--bg-void);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 280px;
+}
+.photo-pane-frame img {
+  max-width: 100%;
+  max-height: 60vh;
+  display: block;
+  border-radius: 6px;
+}
+
+.photo-pane-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.photo-meta {
+  font-size: 11px;
+  color: var(--text-muted);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.qr-pane {
+  display: flex;
+  flex-direction: column;
+}
+.qr-stage-mount {
+  background: #fff;
+  border-radius: 10px;
+  padding: 12px;
+  min-height: 280px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.qr-stage-mount canvas {
+  max-width: 100%;
+  height: auto;
+  display: block;
+}
+.qr-controls {
+  display: flex;
+  gap: 8px;
+}
+.qr-status {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 4px;
+}
+.qr-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.5;
+  margin-top: 6px;
+}
+
+/* スマホ/狭画面では縦並び */
+@media (max-width: 880px) {
+  .photo-modal-content {
+    grid-template-columns: 1fr;
+  }
+  .photo-pane-frame img {
+    max-height: 40vh;
+  }
+}

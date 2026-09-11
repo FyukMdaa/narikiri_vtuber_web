@@ -13,6 +13,7 @@
     "three/addons/": "./js/vendor/three/examples/jsm/",
     "@pixiv/three-vrm": "./js/vendor/three-vrm/three-vrm.module.js",
     "@mediapipe/tasks-vision": "./js/vendor/mediapipe/vision_bundle.mjs",
+    "animated-data-qr": "./js/vendor/animated-data-qr/animated-data-qr.esm.js",
     "app/": "./js/"
   }
 }
@@ -65,6 +66,13 @@
     </button>
     <input type="file" id="inp-input" accept=".inp">
 
+    <div class="divider-v"></div>
+
+    <label class="tool-btn photo-btn" id="btn-photo" title="現在のアバター・カメラ・骨組みを撮影します（Space キーでも撮影可）">
+      <span>撮影</span>
+    </label>
+    <select id="photo-layout-select" class="tool-btn photo-layout-select" title="フォトレイアウトを選択"></select>
+
     <div id="status-tag">READY</div>
   </div>
 
@@ -93,6 +101,48 @@
     </div>
   </div>
 </div>
+
+<!-- ── フォトモーダル ── -->
+<dialog id="photo-modal" class="photo-modal" aria-labelledby="photo-modal-title">
+  <div class="photo-modal-body">
+    <div class="photo-modal-header">
+      <div>
+        <span class="kicker">PHOTO</span>
+        <h2 id="photo-modal-title" class="photo-modal-title">撮影結果</h2>
+      </div>
+      <button id="photo-modal-close" class="photo-modal-close" type="button" aria-label="閉じる">&times;</button>
+    </div>
+
+    <div class="photo-modal-content">
+      <!-- 左: 選択されたフォト -->
+      <div class="photo-pane">
+        <div class="photo-pane-label">PHOTO</div>
+        <div class="photo-pane-frame">
+          <img id="photo-modal-img" alt="captured photo" />
+        </div>
+        <div class="photo-pane-actions">
+          <button id="photo-download" class="tool-btn" type="button">ダウンロード</button>
+          <button id="photo-retake" class="tool-btn" type="button">撮り直す</button>
+        </div>
+        <div id="photo-meta" class="photo-meta"></div>
+      </div>
+
+      <!-- 右: データ転送 QR -->
+      <div class="photo-pane qr-pane">
+        <div class="photo-pane-label">DATA TRANSFER QR</div>
+        <div id="qr-stage-mount" class="qr-stage-mount"></div>
+        <div class="qr-controls">
+          <button id="qr-start" class="tool-btn active" type="button">送信開始</button>
+          <button id="qr-stop" class="tool-btn" type="button">一時停止</button>
+        </div>
+        <div id="qr-status" class="qr-status">準備中…</div>
+        <div class="qr-hint">
+          受信側（もう一台の端末）のカメラで QR を読み取ってください。アニメーション QR で順次データが転送されます。
+        </div>
+      </div>
+    </div>
+  </div>
+</dialog>
 
 <script type="module" src="./js/main.js"></script>
 

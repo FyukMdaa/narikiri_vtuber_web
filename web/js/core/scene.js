@@ -9,7 +9,9 @@ export function initScene() {
   const canvas = document.getElementById('three-canvas');
   const paneModel = document.getElementById('pane-model');
 
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+  // preserveDrawingBuffer: true はフォト機能が canvas を toBlob/drawImage で
+  // キャプチャするのに必要（既定だとフレーム合成後にバッファが消去される）
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, preserveDrawingBuffer: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 
   const scene = new THREE.Scene();

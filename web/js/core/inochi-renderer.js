@@ -85,7 +85,8 @@ export class InochiRenderer {
       alpha: true,
       depth: false,
       stencil: true,              // マスク (公式 Drawable.masks) に必須
-      preserveDrawingBuffer: false,
+      // フォト機能が canvas を toBlob/drawImage でキャプチャするのに必要
+      preserveDrawingBuffer: true,
     });
     if (!this.gl) throw new Error('Inochi2D: WebGL2 not supported');
     console.info(`[Inochi2D] renderer pipeline v${RENDERER_PIPELINE_VERSION} (premultiplied alpha + Composite FBO + per-frame zSort + stencil masks)`);

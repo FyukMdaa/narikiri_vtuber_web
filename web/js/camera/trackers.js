@@ -100,7 +100,7 @@ export async function initTrackers() {
 
 // video は HTMLVideoElement のまま渡す。
 // detectForVideo() はメインスレッドで同期実行されるため、呼び出し頻度は
-// detection-loop.js の 30Hz 制限で抑える。
+// detection-loop.js の制限で抑える。
 export function detectFrame(video, timestamp) {
   if (!cameraState.trackersReady || !faceLandmarker || !poseLandmarker || !handLandmarker) {
     return Promise.reject(new Error('trackers not ready'));
@@ -132,6 +132,53 @@ export function detectFrame(video, timestamp) {
     });
   } catch (err) {
     return Promise.reject(err);
+  }
+}
+
+// ── 1検出器のみを実行する版（負荷分散用）──
+//   face/pose/hand の3モデルを同一 tick で同期実行すると、1回の
+//   detectForVideo() 呼び出しが数〜数十msかかるため、3つ合計で
+//   メインスレッドを長時間ブロックし、同じスレッドで動く rAF の
+//   描画コールバック（animate()）まで巻き込んでコマ落ち（カクつき）
+//   の原因になる。
+//   detection-loop.js 側で tick ごとに1種類だけ呼び出し、
+//   face→pose→hand をラウンドロビンすることで、1 tick あたりの
+//   ブロック時間を約1/3に抑える（合計スループットも下がるため
+//   CPU負荷そのものも軽減される）。
+export function detectPart(part, video, timestamp) {
+  if (!cameraState.trackersReady || !faceLandmarker || !poseLandmarker || !handLandmarker) {
+    throw new Error('trackers not ready');
+  }
+
+  switch (part) {
+    case 'face': {
+      const r = faceLandmarker.detectForVideo(video, timestamp);
+      return {
+        face: r.faceLandmarks?.[0] ?? null,
+        faceBlendshapes: r.faceBlendshapes?.[0]?.categories ?? null,
+        headMatrix: r.facialTransformationMatrixes?.[0]?.data ?? null,
+      };
+    }
+    case 'pose': {
+      const r = poseLandmarker.detectForVideo(video, timestamp);
+      return { pose: r.landmarks?.[0] ?? null };
+    }
+    case 'hand': {
+      const r = handLandmarker.detectForVideo(video, timestamp);
+      const hands = [];
+      if (r.landmarks) {
+        for (let i = 0; i < r.landmarks.length; i++) {
+          hands.push({
+            landmarks: r.landmarks[i],
+            handedness: r.handedness?.[i]?.[0]?.categoryName ?? null,
+            score: r.handedness?.[i]?.[0]?.score ?? 0,
+          });
+        }
+      }
+      return { hands };
+    }
+    default:
+      throw new Error(`unknown detect part: ${part}`);
   }
 }
 
