@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "node scripts/dev-server.mjs",
+    "inject:env": "node scripts/inject-env.mjs",
     "fetch:mediapipe": "node scripts/fetch-mediapipe-assets.mjs",
     "fetch:three": "node scripts/fetch-three-assets.mjs",
     "tauri": "tauri",
