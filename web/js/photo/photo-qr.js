@@ -9,10 +9,6 @@
 //     - プリセット (PHOTO_QR_PRESET): compatibility / balanced / throughput / resilient
 //     - フレーム間隔 (PHOTO_QR_FRAME_INTERVAL_MS): ms（小さいほど速い）
 //   これらは env.js で調整できる。
-//
-//   送信側の frameIntervalMs と受信側の scanIntervalMs は独立している。
-//   送信側を速くしても受信側のカメラfpsが追いつかないと読み漏れる。
-//   推奨: 送信 80ms × 受信 80ms（カメラ 12.5fps 相当）で安定動作。
 // ──────────────────────────────────────────────────────────────
 import { createQrSender, resolveTransferPreset } from 'animated-data-qr';
 import { PHOTO_QR_PRESET, PHOTO_QR_FRAME_INTERVAL_MS } from 'app/env.js';
@@ -22,10 +18,6 @@ let senderController = null;
 let senderMount = null;
 
 // ── QR 送信を開始 ──
-//   mount: HTMLDivElement（QR を描画するコンテナ）
-//   blob: 送信する Blob (JPEG 等)
-//   fileName: 受信側での保存名
-//   options: { onPrepared, onStart, onProgress }
 export async function startQrTransfer(mount, blob, fileName, options = {}) {
   // 既存のコントローラがあれば破棄
   await stopQrTransfer();
@@ -39,9 +31,6 @@ export async function startQrTransfer(mount, blob, fileName, options = {}) {
   // マウント内をクリア
   mount.innerHTML = '';
 
-  // 受信側が読みやすいよう QR を大きめに描画
-  //   canvas のスタイルは 100% でリサイズされるため、
-  //   コンテナの幅に合わせて自動調整される
   senderController = createQrSender(mount, {
     frameIntervalMs,
     chunkByteSize: preset.chunkByteSize,

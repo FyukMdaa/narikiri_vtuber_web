@@ -74,21 +74,17 @@ export function takePhoto(layoutId) {
 
 // ── Canvas を JPEG Blob に変換（転送用：縮小＋中品質）──
 export async function canvasToTransferBlob(canvas) {
-  // 最大辺サイズに収めるためのダウンスケール
   const downscaled = downscaleIfNeeded(canvas, PHOTO_MAX_DIMENSION || 720);
   return await canvasToBlob(downscaled, PHOTO_TRANSFER_MIME || 'image/jpeg', PHOTO_JPEG_QUALITY ?? 0.72);
 }
 
 // ── Canvas を JPEG Blob に変換（ダウンロード用：元サイズ＋高品質）──
 export async function canvasToDownloadBlob(canvas) {
-  // ダウンロード用は元サイズのまま高品質JPEG
-  // ※ PNG にしたい場合は PHOTO_DOWNLOAD_MIME を "image/png" に設定
   const quality = PHOTO_DOWNLOAD_MIME === 'image/png' ? undefined : 0.92;
   return await canvasToBlob(canvas, PHOTO_DOWNLOAD_MIME || 'image/jpeg', quality);
 }
 
 // ── 後方互換: canvasToPngBlob は canvasToDownloadBlob へエイリアス ──
-//   旧い呼び出し元が壊れないように残す
 export const canvasToPngBlob = canvasToDownloadBlob;
 
 // ── 内部: Canvas → Blob ──
@@ -107,7 +103,6 @@ function canvasToBlob(canvas, mimeType, quality) {
 }
 
 // ── 内部: 最大辺サイズに収めてダウンスケール ──
-//   既に小さい場合はそのまま返す（コピーもしない）
 function downscaleIfNeeded(canvas, maxDimension) {
   const w = canvas.width;
   const h = canvas.height;
@@ -121,7 +116,6 @@ function downscaleIfNeeded(canvas, maxDimension) {
   out.width = nw;
   out.height = nh;
   const ctx = out.getContext('2d');
-  // 高品質ダウンスケール（ブラウザの標準スムージング）
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
   ctx.drawImage(canvas, 0, 0, nw, nh);
@@ -129,7 +123,6 @@ function downscaleIfNeeded(canvas, maxDimension) {
 }
 
 // ── タイムスタンプ文字列 ──
-//   ファイル名に使える形式: YYYYMMDD-HHMMSS
 function formatTimestamp(date) {
   const pad = (n) => String(n).padStart(2, '0');
   const y = date.getFullYear();

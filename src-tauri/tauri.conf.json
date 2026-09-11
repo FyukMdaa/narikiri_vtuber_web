@@ -5,7 +5,7 @@
   "identifier": "dev.narikiri.vtuber",
   "build": {
     "beforeDevCommand": "npm run dev",
-    "beforeBuildCommand": "npm run inject:env && npm run fetch:mediapipe",
+    "beforeBuildCommand": "npm run fetch:mediapipe",
     "devUrl": "http://127.0.0.1:1420",
     "frontendDist": "../web"
   },

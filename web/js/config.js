@@ -65,7 +65,7 @@ export const HAND_TUNING = {
 // 瞬目のチューニング
 export const BLINK_TUNING = {
   curve: 1.3,
-  amplification: 3.0,
+  amplification: 2.5,
   threshold: 0.70,
   maxBlink: 0.88,  // まぶたの最大閉じ度。1.0=全閉。まつ毛が顔に埋まるのを防ぐ
 };

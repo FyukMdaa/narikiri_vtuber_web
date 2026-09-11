@@ -1,0 +1,15 @@
+.direnv/
+
+# Node
+node_modules/
+
+# Tauri
+src-tauri/target/
+src-tauri/gen/
+
+# MediaPipe self-hosted model files (large binaries, fetched via `npm run fetch:mediapipe`)
+web/assets/mediapipe/models/*.task
+
+# misc
+.DS_Store
+dist/

@@ -18,7 +18,6 @@ let currentPhoto = null;        // { canvas, transferFileName, downloadFileName,
 let currentBlob = null;         // QR 転送用 Blob（JPEG圧縮済み・縮小済み）
 let currentDownloadBlob = null; // ダウンロード用 Blob（高品質JPEG）
 let currentObjectUrl = null;
-let layoutSelectUpdaterBound = false;
 
 // ── DOM参照キャッシュ ──
 const dom = {
@@ -77,7 +76,6 @@ export function initPhoto() {
   window.addEventListener('keydown', onKeyDown);
 
   // カメラ表示切替時にレイアウト選択肢を更新
-  //   ※ initHideCameraToggle の後に呼ばれる前提だが、念のため少し遅延
   setTimeout(refreshLayoutSelect, 0);
 }
 
@@ -85,12 +83,10 @@ export function initPhoto() {
 function refreshLayoutSelect() {
   if (!dom.layoutSelect) return;
 
-  // 現在選択中のレイアウトIDを保持
   const prevId = dom.layoutSelect.value;
   const layouts = listAvailableLayouts();
   const cameraActive = isCameraActive();
 
-  // 選択肢を再構築
   dom.layoutSelect.innerHTML = '';
   for (const l of layouts) {
     const opt = document.createElement('option');
@@ -99,7 +95,6 @@ function refreshLayoutSelect() {
     dom.layoutSelect.appendChild(opt);
   }
 
-  // 選択状態の復元またはデフォルトへフォールバック
   let nextId = prevId;
   const stillExists = layouts.some((l) => l.id === nextId);
   if (!stillExists) {
@@ -126,10 +121,8 @@ function onLayoutChange() {
 // ── Space キー押下 ──
 function onKeyDown(e) {
   if (e.code !== 'Space') return;
-  // 入力要素にフォーカス中は無視
   const tag = (e.target && e.target.tagName) || '';
   if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
-  // モーダルが開いている時は無視
   if (dom.modal && dom.modal.open) return;
   e.preventDefault();
   captureAndShow();
@@ -150,9 +143,7 @@ async function captureAndShow() {
 
   currentPhoto = photo;
 
-  // QR 転送用 Blob（縮小＋中品質JPEG）
   let transferBlob;
-  // ダウンロード用 Blob（元サイズ＋高品質JPEG）
   let downloadBlob;
   try {
     [transferBlob, downloadBlob] = await Promise.all([
@@ -167,17 +158,13 @@ async function captureAndShow() {
   currentBlob = transferBlob;
   currentDownloadBlob = downloadBlob;
 
-  // 既存の Object URL を破棄
   if (currentObjectUrl) {
     URL.revokeObjectURL(currentObjectUrl);
   }
-  // モーダルには転送用を表示（ダウンロードは別URL）
   currentObjectUrl = URL.createObjectURL(transferBlob);
 
-  // QR 転送の見積もり時間
   const estimate = estimateTransferTime(transferBlob.size);
 
-  // モーダルへ表示
   dom.modalImg.src = currentObjectUrl;
   dom.photoMeta.innerHTML = `
     <div>レイアウト: ${escapeHtml(photo.layoutLabel)}</div>
@@ -187,18 +174,15 @@ async function captureAndShow() {
     <div>ダウンロード: ${escapeHtml(photo.downloadFileName)} (${formatBytes(downloadBlob.size)})</div>
   `;
 
-  // QR ステータスをリセット
   dom.qrStatus.textContent = '送信準備中…';
   dom.qrStageMount.innerHTML = '<div style="color:#888;font-size:12px;">準備中…</div>';
 
-  // モーダルを開く
   if (typeof dom.modal.showModal === 'function') {
     dom.modal.showModal();
   } else {
     dom.modal.setAttribute('open', '');
   }
 
-  // QR 転送を自動開始
   try {
     dom.qrStatus.textContent = 'QR を生成中…';
     await startQrTransfer(dom.qrStageMount, transferBlob, photo.transferFileName, {
@@ -215,7 +199,6 @@ async function captureAndShow() {
 
 // ── モーダルを閉じる ──
 async function closeModal() {
-  // QR 送信を停止
   try {
     await stopQrTransfer();
   } catch (e) {
@@ -239,14 +222,12 @@ function downloadCurrent() {
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
-  // 少し待ってから URL を解放（ブラウザによっては即解放でDL失敗）
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 // ── 撮り直す（モーダルを閉じて再撮影）──
 async function retakePhoto() {
   await closeModal();
-  // 次フレームで撮影し直す（モーダルが完全に閉じてから）
   requestAnimationFrame(() => captureAndShow());
 }
 
@@ -288,11 +269,8 @@ function showStatusMessage(message) {
 // ── ユーティリティ: HTML エスケープ ──
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({
-    '&': '&amp;',
-    '<': '&lt;',
-    '>': '&gt;',
-    '"': '&quot;',
-    "'": '&#39;',
+    '&': '&amp;', '<': '&lt;', '>': '&gt;',
+    '"': '&quot;', "'": '&#39;',
   })[c]);
 }
 
@@ -311,10 +289,7 @@ function formatBytes(n) {
 }
 
 // ── ユーティリティ: 転送時間見積もり ──
-//   ファイルサイズから chunk 数と1ループあたりの秒数を概算する。
-//   実際の受信完了時間は受信側のカメラfpsに依存するため目安。
 function estimateTransferTime(fileSize) {
-  // プリセット別の chunkByteSize / symbolsPerFrame / parityBlockDataChunks を反映
   const PRESETS = {
     compatibility: { chunk: 220, symbols: 1, parity: 4 },
     balanced:       { chunk: 384, symbols: 2, parity: 6 },
@@ -325,14 +300,12 @@ function estimateTransferTime(fileSize) {
   const intervalMs = PHOTO_QR_FRAME_INTERVAL_MS ?? 80;
 
   const totalChunks = Math.max(1, Math.ceil(fileSize / p.chunk));
-  // parity ブロックは parityBlockDataChunks チャンクごとに1つ追加
   const parityChunks = p.parity > 0 ? Math.ceil(totalChunks / p.parity) : 0;
-  const totalSymbols = totalChunks + parityChunks + 1; // +1 for manifest
+  const totalSymbols = totalChunks + parityChunks + 1;
   const totalFrames = Math.ceil(totalSymbols / p.symbols);
   const loopMs = totalFrames * intervalMs;
   const loopSec = loopMs / 1000;
 
-  // 実受信側は 1〜2 ループで完了することが多い。余裕を見て 1.5 倍で見積もり。
   return {
     loops: 1,
     timeSec: loopSec.toFixed(1),
